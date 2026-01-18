@@ -1,0 +1,145 @@
+{
+  "date": "2026-01-16",
+  "flights": [
+    {
+      "origin": "RKSS",
+      "eobtKst": "15:30",
+      "type": "B738",
+      "callsign": "KE1191",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKTU",
+      "eobtKst": "15:40",
+      "type": "A321",
+      "callsign": "OZ8291",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "15:50",
+      "type": "B737",
+      "callsign": "7C1391",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKJK",
+      "eobtKst": "16:00",
+      "type": "B738",
+      "callsign": "LJ491",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "16:10",
+      "type": "A320",
+      "callsign": "OZ8091",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKJJ",
+      "eobtKst": "16:20",
+      "type": "B738",
+      "callsign": "KE1193",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "16:30",
+      "type": "B738",
+      "callsign": "KE1201",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "16:45",
+      "type": "OZ8101",
+      "callsign": "OZ8101",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKTU",
+      "eobtKst": "16:35",
+      "type": "A321",
+      "callsign": "OZ8301",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKTU",
+      "eobtKst": "17:05",
+      "type": "B738",
+      "callsign": "KE1301",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKJK",
+      "eobtKst": "16:40",
+      "type": "B737",
+      "callsign": "7C1401",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKJK",
+      "eobtKst": "17:10",
+      "type": "A320",
+      "callsign": "7C1403",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKJJ",
+      "eobtKst": "16:50",
+      "type": "A320",
+      "callsign": "LJ501",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKJJ",
+      "eobtKst": "17:20",
+      "type": "B738",
+      "callsign": "LJ503",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "17:00",
+      "type": "B738",
+      "callsign": "KE1203",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "17:15",
+      "type": "A321",
+      "callsign": "OZ8103",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "17:30",
+      "type": "B738",
+      "callsign": "KE1205",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "17:45",
+      "type": "A320",
+      "callsign": "OZ8105",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "18:00",
+      "type": "B738",
+      "callsign": "KE1207",
+      "destination": "RKPC"
+    },
+    {
+      "origin": "RKSS",
+      "eobtKst": "18:15",
+      "type": "A321",
+      "callsign": "OZ8107",
+      "destination": "RKPC"
+    }
+  ]
+}

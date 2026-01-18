@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Y711 흐름 관리 시스템 (Y711 Merge Point Management)</title>
+    <link rel="stylesheet" href="/src/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap"
+        rel="stylesheet">
+    <!-- SortableJS Local -->
+    <script src="/src/lib/Sortable.min.js"></script>
+</head>
+
+<body class="dark-theme">
+    <div id="app">
+        <!-- 상단 헤더 (메뉴 및 설정 요약) -->
+        <header class="app-header">
+            <div class="header-left">
+                <h1>Y711 <span>FMS</span></h1>
+                <nav class="top-nav">
+                    <button class="nav-btn active" id="view-dashboard">Dashboard</button>
+                    <button class="nav-btn" id="view-settings">Settings</button>
+                </nav>
+            </div>
+            <div class="header-center">
+                <div class="sim-status">
+                    <span class="label">Sim Time (UTC)</span>
+                    <span class="value clock" id="sim-clock">14:00:00</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="user-profile">
+                    <span class="status-indicator online"></span>
+                    Admin
+                </div>
+            </div>
+        </header>
+
+        <!-- 메인 컨텐츠 영역 (좌/우 패널) -->
+        <div class="app-body">
+            <!-- 좌측 패널: 항공기 목록 및 CTOT 제어 -->
+            <aside class="left-panel">
+                <div class="panel-header">
+                    <h2>Flight Queue</h2>
+                    <div class="control-row" style="flex-wrap: wrap; gap: 0.5rem;">
+                        <!-- CFL Filter -->
+                        <div class="cfl-filter" style="width: 48%;">
+                            <label style="font-size: 0.75rem; color: var(--text-tertiary);">Filter CFL:</label>
+                            <select id="cfl-filter-select"
+                                style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); padding: 4px; border-radius: 4px;">
+                                <option value="ALL">ALL (Show All)</option>
+                                <option value="FL140">FL140</option>
+                                <option value="FL160">FL160</option>
+                                <option value="FL180">FL180</option>
+                                <option value="FL200">FL200</option>
+                                <option value="FL220">FL220</option>
+                            </select>
+                        </div>
+
+                        <!-- Time Range Filter -->
+                        <div class="time-filter" style="width: 48%;">
+                            <label style="font-size: 0.75rem; color: var(--text-tertiary);">Show Past:</label>
+                            <select id="time-range-select"
+                                style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); padding: 4px; border-radius: 4px;">
+                                <option value="60">Past 1 Hour</option>
+                                <option value="120">Past 2 Hours</option>
+                                <option value="180">Past 3 Hours</option>
+                                <option value="ALL">Show All History</option>
+                            </select>
+                        </div>
+
+                        <!-- Separation Control (Minutes) -->
+                        <div class="separation-control" style="width: 100%; display: flex; flex-direction: column;">
+                            <label
+                                style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 4px;">Separation
+                                (Min):</label>
+                            <div class="sep-buttons" style="display: flex; gap: 4px;">
+                                <button class="btn-sep active" data-min="1">1m</button>
+                                <button class="btn-sep" data-min="2">2m</button>
+                                <button class="btn-sep" data-min="3">3m</button>
+                                <button class="btn-sep" data-min="4">4m</button>
+                            </div>
+                        </div>
+
+                        <button id="sort-cfl-btn" class="btn btn-secondary" style="display: none;">Sort CFL</button>
+                    </div>
+                </div>
+
+                <div class="flight-queue-header">
+                    <span class="col-cs">Callsign</span>
+                    <span class="col-dept">Dept</span>
+                    <span class="col-dest">Dest</span>
+                    <span class="col-cfl">CFL</span>
+                    <span class="col-eobt">EOBT</span>
+                    <span class="col-atd">ATD</span>
+                    <span class="col-ctot">CTOT</span>
+                </div>
+
+                <div class="flight-queue-list" id="flight-queue">
+                    <!-- JS로 동적 생성될 리스트 아이템 -->
+                    <div class="queue-item placeholder">Loading flights...</div>
+                </div>
+
+                <div class="panel-footer">
+                    <button id="calc-ctot-btn" class="btn btn-primary full-width">Refresh CTOT</button>
+                </div>
+            </aside>
+
+            <!-- 우측 패널: 시각화 (타임라인 + 맵) -->
+            <main class="right-panel">
+                <!-- 상단: 타임라인 (Gantt Chart) -->
+                <section class="timeline-section glass-card">
+                    <div class="card-header compact">
+                        <h2>Time Flow</h2>
+                        <div class="timeline-legend">
+                            <span class="legend-item"><i class="dot gmp"></i> RKSS</span>
+                            <span class="legend-item"><i class="dot cjj"></i> RKTU</span>
+                            <span class="legend-item"><i class="dot kuv"></i> RKJK</span>
+                            <span class="legend-item"><i class="dot kwj"></i> RKJJ</span>
+                        </div>
+                    </div>
+                    <div class="timeline-scroll-area">
+                        <div class="time-axis"></div> <!-- JS generated -->
+                        <div id="timelines-wrapper">
+                            <div class="airport-track" data-airport="RKSS">
+                                <div class="airport-track-label">RKSS (김포)</div>
+                            </div>
+                            <div class="airport-track" data-airport="RKTU">
+                                <div class="airport-track-label">RKTU (청주)</div>
+                            </div>
+                            <div class="airport-track" data-airport="RKJK">
+                                <div class="airport-track-label">RKJK (군산)</div>
+                            </div>
+                            <div class="airport-track" data-airport="RKJJ">
+                                <div class="airport-track-label">RKJJ (광주)</div>
+                            </div>
+                            <div class="current-time-marker" id="time-marker"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 하단: 맵 (Live Map) -->
+                <section class="map-section glass-card">
+                    <div class="card-header compact">
+                        <h2>Live Route Map</h2>
+                        <div class="sim-controls-compact">
+                            <button class="ctrl-btn" id="prev-btn">⏮</button>
+                            <button class="ctrl-btn main" id="play-btn">▶</button>
+                            <button class="ctrl-btn" id="next-btn">⏭</button>
+                            <select id="speed-select" class="speed-select">
+                                <option value="1">1x</option>
+                                <option value="2">2x</option>
+                                <option value="5">5x</option>
+                                <option value="10">10x</option>
+                                <option value="20">20x</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="map-container">
+                        <svg id="flight-map-svg" viewBox="0 0 1600 600" preserveAspectRatio="none">
+                            <g id="altitude-lanes"></g>
+                            <g id="route-lines"></g>
+                            <g id="merge-points"></g>
+                            <g id="airport-labels"></g>
+                            <g id="aircraft-layer"></g> <!-- Analysis lines 포함 -->
+                        </svg>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- 설정 모달 -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content glass-card" style="min-width: 600px;">
+            <div class="modal-header"
+                style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <h3>Configuration</h3>
+                <button class="btn-icon" id="close-settings"
+                    style="background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">✕</button>
+            </div>
+
+            <div class="config-section">
+                <h4>Entry Segments (Initial Leg)</h4>
+                <div class="config-group" id="entry-segments-config">
+                    <!-- JS Generated -->
+                </div>
+            </div>
+
+            <div class="config-section" style="margin-top: 1rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h4>Intermediate Waypoints</h4>
+                    <button class="btn btn-secondary btn-sm" id="add-waypoint-btn">+ Add Waypoint</button>
+                </div>
+                <div class="waypoint-list-header"
+                    style="display:grid; grid-template-columns: 1fr 1fr 1fr 0.5fr; gap:0.5rem; font-size:0.8rem; opacity:0.7; margin-bottom:0.5rem;">
+                    <span>From</span>
+                    <span>To (Name)</span>
+                    <span>Duration (Min)</span>
+                    <span></span>
+                </div>
+                <div class="config-group" id="waypoints-config-list" style="max-height: 200px; overflow-y: auto;">
+                    <!-- JS Generated -->
+                </div>
+            </div>
+
+            <div class="modal-footer" style="margin-top: 1.5rem; text-align: right;">
+                <button class="btn btn-primary" id="save-settings">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>

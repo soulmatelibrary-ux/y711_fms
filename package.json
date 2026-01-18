@@ -1,0 +1,21 @@
+{
+  "name": "flow-management",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "parse:schedule": "node scripts/parse_schedule.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.1"
+  }
+}
