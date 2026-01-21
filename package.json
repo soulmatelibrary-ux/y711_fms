@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 7300",
     "build": "vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --port 7300",
     "parse:schedule": "node scripts/parse_schedule.js"
   },
   "keywords": [],

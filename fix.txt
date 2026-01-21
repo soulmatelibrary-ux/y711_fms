@@ -1,0 +1,30 @@
+bulti mekil 2
+mekil gonax 2
+gonax bedes 2
+bedes elpos 3
+elpos mangi 4
+mangi dalsu 4
+dalsu nuldi 7
+nuldi dotol 2
+
+각지점별 항공기 통과시간 평균 시간임
+
+
+rktu - bulti 5
+rkss - bulti 8
+rkjk - mangi 3
+rkjj - dalsu 1
+각 공항에서 출발하여 합류하는 지점임
+
+그리고 각 항공기들 분리간견은 1~10분까지 설정할수 있도록
+
+이것을 사용자가 입력하는 화면에 입력하고 이것을 기반으로 흐름관리 할 수 있도록 해줘
+
+ELPOS	35.90277777	126.78527777
+MEKIL	36.55611111	126.83138888
+BEDES	36.15111111	126.81194444
+BULTI	36.72277778	126.82500000
+GONAX	36.38666667	126.83569444
+MANGI	35.50277778	126.74194444
+NULDI	34.42055555	126.6275
+DALSU	35.12527778	126.70166667
