@@ -17,7 +17,7 @@
 </head>
 
 <body class="dark-theme">
-    <div id="app">
+    <div id="app" style="visibility: hidden;">
         <!-- 상단 헤더 (메뉴 및 설정 요약) -->
         <header class="app-header">
             <div class="header-left">
@@ -39,12 +39,12 @@
                 <!-- Sim Time moved to play button line -->
             </div>
             <div class="header-right">
-                <button id="help-btn" class="btn btn-secondary" style="margin-right: 15px;">? 도움말</button>
+                <button id="logout-btn" class="btn btn-secondary">로그아웃</button>
                 <div class="user-profile">
                     <span class="status-indicator online"></span>
-                    <span id="current-user">Admin</span>
+                    <span id="current-user">acc</span>
                 </div>
-                <button id="logout-btn" class="btn btn-secondary" style="margin-left: 15px;">로그아웃</button>
+                <button id="help-btn" class="btn btn-secondary">? 도움말</button>
             </div>
         </header>
 
@@ -494,30 +494,33 @@
         // 페이지 로드 시 인증 확인
         if (!isAuthenticated()) {
             window.location.href = '/login.html';
-        }
+        } else {
+            // 인증 확인 후 화면 표시
+            document.getElementById('app').style.visibility = 'visible';
 
-        // 현재 사용자 표시
-        const currentUser = getCurrentUser();
-        if (currentUser) {
-            document.getElementById('current-user').textContent = currentUser;
-        }
-
-        // 로그아웃 버튼 이벤트
-        document.getElementById('logout-btn')?.addEventListener('click', () => {
-            if (confirm('로그아웃 하시겠습니까?')) {
-                logout();
+            // 현재 사용자 표시
+            const currentUser = getCurrentUser();
+            if (currentUser) {
+                document.getElementById('current-user').textContent = currentUser;
             }
-        });
 
-        // 도움말 버튼 이벤트
-        document.getElementById('help-btn')?.addEventListener('click', () => {
-            document.getElementById('help-modal')?.classList.remove('hidden');
-        });
+            // 로그아웃 버튼 이벤트
+            document.getElementById('logout-btn')?.addEventListener('click', () => {
+                if (confirm('로그아웃 하시겠습니까?')) {
+                    logout();
+                }
+            });
 
-        // 도움말 모달 닫기
-        document.getElementById('close-help')?.addEventListener('click', () => {
-            document.getElementById('help-modal')?.classList.add('hidden');
-        });
+            // 도움말 버튼 이벤트
+            document.getElementById('help-btn')?.addEventListener('click', () => {
+                document.getElementById('help-modal')?.classList.remove('hidden');
+            });
+
+            // 도움말 모달 닫기
+            document.getElementById('close-help')?.addEventListener('click', () => {
+                document.getElementById('help-modal')?.classList.add('hidden');
+            });
+        }
     </script>
 </body>
 

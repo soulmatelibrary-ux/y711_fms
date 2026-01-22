@@ -603,8 +603,15 @@ body {
 }
 
 @keyframes ctot-conflict-pulse {
-    0%, 100% { background: rgba(255, 68, 68, 0.4); }
-    50% { background: rgba(255, 68, 68, 0.6); }
+
+    0%,
+    100% {
+        background: rgba(255, 68, 68, 0.4);
+    }
+
+    50% {
+        background: rgba(255, 68, 68, 0.6);
+    }
 }
 
 .queue-item .col-cs {
@@ -1208,8 +1215,15 @@ body {
 }
 
 @keyframes sim-pulse {
-    0%, 100% { background: rgba(0, 255, 128, 0.2); }
-    50% { background: rgba(0, 255, 128, 0.35); }
+
+    0%,
+    100% {
+        background: rgba(0, 255, 128, 0.2);
+    }
+
+    50% {
+        background: rgba(0, 255, 128, 0.35);
+    }
 }
 
 /* 분리 기준 위반 경고 - 목록 */
@@ -1230,8 +1244,15 @@ body {
 }
 
 @keyframes conflict-flash {
-    0%, 100% { background: rgba(255, 68, 68, 0.3); }
-    50% { background: rgba(255, 68, 68, 0.5); }
+
+    0%,
+    100% {
+        background: rgba(255, 68, 68, 0.3);
+    }
+
+    50% {
+        background: rgba(255, 68, 68, 0.5);
+    }
 }
 
 /* 맵 충돌 경고 애니메이션 */
@@ -1240,8 +1261,17 @@ body {
 }
 
 @keyframes conflict-pulse-anim {
-    0%, 100% { r: 20; opacity: 0.7; }
-    50% { r: 30; opacity: 0.3; }
+
+    0%,
+    100% {
+        r: 20;
+        opacity: 0.7;
+    }
+
+    50% {
+        r: 30;
+        opacity: 0.3;
+    }
 }
 
 /* CTOT 초기화 버튼 */
@@ -1333,4 +1363,33 @@ body {
 .flight-queue-header .col-atd,
 .queue-item .col-atd-wrapper {
     display: none !important;
+}
+
+/* Header Right Layout */
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    font-size: 0.9rem;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.status-indicator.online {
+    background-color: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
 }
