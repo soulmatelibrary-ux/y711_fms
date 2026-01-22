@@ -237,7 +237,7 @@ function secToTime(sec) {
         console.error('Invalid seconds value:', sec);
         return "0000";
     }
-    const h = Math.floor(sec / 3600);
+    const h = Math.floor(sec / 3600) % 24; // 24시간 넘으면 00시로
     const m = Math.floor((sec % 3600) / 60);
     if (h < 0 || m < 0) return "0000";
     return `${h.toString().padStart(2, '0')}${m.toString().padStart(2, '0')}`;
