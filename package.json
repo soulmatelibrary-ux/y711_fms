@@ -6,6 +6,7 @@
     "dev": "vite --port 7300",
     "build": "vite build",
     "preview": "vite preview --port 7300",
+    "start": "node api-server.js",
     "parse:schedule": "node scripts/parse_schedule.js"
   },
   "keywords": [],
