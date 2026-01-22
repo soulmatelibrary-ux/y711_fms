@@ -1948,12 +1948,15 @@ function updateSimulationUI() {
     const windowEndSec = timelineEndHour * 3600;
     const PX_PER_SEC = 1350 / 3600;
 
-    // 마커 위치 계산
-    const markerPos = (simTimeSeconds - windowStartSec) * PX_PER_SEC;
+    // 24시간 순환 처리된 시뮬레이션 시간
+    const simTimeInDay = simTimeSeconds % 86400;
+
+    // 마커 위치 계산 (24시간 순환 적용)
+    const markerPos = (simTimeInDay - windowStartSec) * PX_PER_SEC;
 
     // 마커는 매 프레임 부드럽게 이동 (throttle 없음)
     if (els.timeMarker) {
-        if (simTimeSeconds >= windowStartSec && simTimeSeconds <= windowEndSec) {
+        if (simTimeInDay >= windowStartSec && simTimeInDay <= windowEndSec) {
             els.timeMarker.style.left = `${markerPos}px`;
             els.timeMarker.style.display = 'block';
         } else {
@@ -1967,7 +1970,7 @@ function updateSimulationUI() {
         lastScrollUpdate = now;
 
         const timelineScrollArea = document.querySelector('.timeline-scroll-area');
-        if (timelineScrollArea && simTimeSeconds >= windowStartSec && simTimeSeconds <= windowEndSec) {
+        if (timelineScrollArea && simTimeInDay >= windowStartSec && simTimeInDay <= windowEndSec) {
             const scrollLeft = Math.max(0, markerPos - (timelineScrollArea.clientWidth / 2));
             timelineScrollArea.scrollTo({
                 left: scrollLeft,
