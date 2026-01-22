@@ -1406,6 +1406,20 @@ function setupEventListeners() {
         els.settingsModal?.classList.add('hidden');
     });
 
+    // 도움말 모달
+    document.getElementById('help-btn')?.addEventListener('click', () => {
+        document.getElementById('help-modal')?.classList.remove('hidden');
+    });
+    document.getElementById('close-help')?.addEventListener('click', () => {
+        document.getElementById('help-modal')?.classList.add('hidden');
+    });
+    // 모달 외부 클릭 시 닫기
+    document.getElementById('help-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'help-modal') {
+            e.target.classList.add('hidden');
+        }
+    });
+
     els.saveSettingsBtn?.addEventListener('click', saveSettings);
     els.addWaypointBtn?.addEventListener('click', addWaypointInput);
 

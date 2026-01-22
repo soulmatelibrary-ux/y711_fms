@@ -37,6 +37,7 @@
                 <!-- Sim Time moved to play button line -->
             </div>
             <div class="header-right">
+                <button id="help-btn" class="btn btn-secondary" style="margin-right: 15px;">? 도움말</button>
                 <div class="user-profile">
                     <span class="status-indicator online"></span>
                     Admin
@@ -204,6 +205,159 @@
                     </div>
                 </section>
             </main>
+        </div>
+    </div>
+
+    <!-- 도움말 모달 -->
+    <div id="help-modal" class="modal hidden">
+        <div class="modal-content glass-card" style="min-width: 700px; max-width: 900px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; position: sticky; top: 0; background: var(--card-bg); padding: 1rem; margin: -1.5rem -1.5rem 1rem -1.5rem; border-radius: 12px 12px 0 0;">
+                <h3>Y711 FMS 사용 가이드</h3>
+                <button class="btn-icon" id="close-help" style="background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">✕</button>
+            </div>
+
+            <div class="help-content" style="line-height: 1.8; color: var(--text-primary);">
+                <!-- 소개 -->
+                <section style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">시스템 소개</h4>
+                    <p style="margin-bottom: 1rem;">
+                        <strong>Y711 FMS</strong>는 서해안 항공로(Y711)를 이용하여 <strong>제주(RKPC)</strong>로 향하는 항공편의
+                        <strong>CTOT(Calculated Take-Off Time, 계산된 이륙시간)</strong>를 관리하는 시스템입니다.
+                    </p>
+                    <p>
+                        여러 공항에서 출발한 항공기들이 동일한 항공로에서 합류할 때 <strong>안전한 분리 간격</strong>을
+                        유지하도록 출발 시간을 자동으로 조정합니다.
+                    </p>
+                </section>
+
+                <!-- 대상 공항 -->
+                <section style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">대상 공항 및 합류 지점</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
+                        <thead>
+                            <tr style="background: rgba(255,255,255,0.05);">
+                                <th style="padding: 10px; text-align: left; border-bottom: 1px solid var(--border-color);">공항</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border-color);">코드</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border-color);">합류지점</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border-color);">진입시간</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="padding: 8px; color: #58a6ff;">김포</td><td style="text-align: center;">RKSS</td><td style="text-align: center;">BULTI</td><td style="text-align: center;">8분</td></tr>
+                            <tr><td style="padding: 8px; color: #bc8cff;">청주</td><td style="text-align: center;">RKTU</td><td style="text-align: center;">MEKIL</td><td style="text-align: center;">7분</td></tr>
+                            <tr><td style="padding: 8px; color: #39c5bb;">군산</td><td style="text-align: center;">RKJK</td><td style="text-align: center;">MANGI</td><td style="text-align: center;">3분</td></tr>
+                            <tr><td style="padding: 8px; color: #d29922;">광주</td><td style="text-align: center;">RKJJ</td><td style="text-align: center;">DALSU</td><td style="text-align: center;">1분</td></tr>
+                        </tbody>
+                    </table>
+                    <div style="background: rgba(88, 166, 255, 0.1); padding: 12px; border-radius: 8px; border-left: 3px solid var(--accent-cyan);">
+                        <strong>항공로 경로:</strong><br>
+                        <code style="color: var(--accent-cyan);">BULTI → MEKIL → GONAX → BEDES → ELPOS → MANGI → DALSU → NULDI → DOTOL → 제주</code>
+                    </div>
+                </section>
+
+                <!-- CTOT 계산 원리 -->
+                <section style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">CTOT 계산 원리</h4>
+                    <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; margin-bottom: 1rem;">
+                        <p style="margin-bottom: 0.8rem;"><strong>1단계: EOBT 기준</strong></p>
+                        <p style="margin-left: 1rem; color: var(--text-secondary);">CTOT는 EOBT(예상 이륙 시간)보다 빠를 수 없습니다.</p>
+
+                        <p style="margin: 0.8rem 0;"><strong>2단계: 이륙 간격 적용</strong></p>
+                        <p style="margin-left: 1rem; color: var(--text-secondary);">같은 공항에서 연속 출발하는 항공기는 최소 이륙 간격을 유지합니다.</p>
+
+                        <p style="margin: 0.8rem 0;"><strong>3단계: 웨이포인트 분리</strong></p>
+                        <p style="margin-left: 1rem; color: var(--text-secondary);">합류 지점에서 앞 항공기와 <strong>최소 3분 분리</strong>를 유지하도록 CTOT를 조정합니다.</p>
+                    </div>
+                    <div style="background: rgba(255, 204, 0, 0.1); padding: 12px; border-radius: 8px; border-left: 3px solid #ffcc00;">
+                        <strong>핵심 원칙:</strong> 각 웨이포인트에서 항공기 간 충돌(3분 미만 분리)이 발생하지 않도록
+                        뒤따르는 항공기의 CTOT를 자동으로 지연시킵니다.
+                    </div>
+                </section>
+
+                <!-- 화면 구성 -->
+                <section style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">화면 구성</h4>
+
+                    <div style="margin-bottom: 1rem;">
+                        <strong style="color: var(--accent-orange);">좌측 패널 - 항공편 목록</strong>
+                        <ul style="margin-left: 1.5rem; margin-top: 0.5rem; color: var(--text-secondary);">
+                            <li>날짜/요일 선택으로 스케줄 필터링</li>
+                            <li>항공편 드래그앤드롭으로 순서 변경 가능</li>
+                            <li>EOBT, CTOT 직접 수정 가능</li>
+                            <li>항공편 클릭 시 기준 항공기로 설정 (빨간색 표시)</li>
+                        </ul>
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <strong style="color: var(--accent-orange);">우측 상단 - 타임라인</strong>
+                        <ul style="margin-left: 1.5rem; margin-top: 0.5rem; color: var(--text-secondary);">
+                            <li>공항별로 항공편 시간대 시각화</li>
+                            <li>노란색: CTOT가 지연된 항공기</li>
+                            <li>빨간색 경고: 충돌 위험</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <strong style="color: var(--accent-orange);">우측 하단 - Live Route Map</strong>
+                        <ul style="margin-left: 1.5rem; margin-top: 0.5rem; color: var(--text-secondary);">
+                            <li>Full View 버튼으로 전체 화면 전환</li>
+                            <li>재생 버튼으로 시뮬레이션 시작</li>
+                            <li>항공기가 각 합류 지점까지 상승 후 순항</li>
+                            <li>분리 간격 실시간 표시</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- 사용 방법 -->
+                <section style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">사용 방법</h4>
+
+                    <div style="display: grid; gap: 1rem;">
+                        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+                            <strong>1. 데이터 로드</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.3rem;">
+                                상단의 <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">Excel</code> 버튼으로 스케줄 파일 업로드<br>
+                                (CALLSIGN, DEPT, DEST, CFL, EOBT_UTC, DAY_OF_WEEK 컬럼 필요)
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+                            <strong>2. CTOT 계산</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.3rem;">
+                                <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">Refresh CTOT</code> 버튼 클릭 또는 항공편 순서 변경 시 자동 계산
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+                            <strong>3. 시뮬레이션</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.3rem;">
+                                <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">▶</code> 재생 버튼으로 시뮬레이션 시작<br>
+                                속도 조절: 1x, 2x, 5x, 10x, 20x
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+                            <strong>4. 설정 변경</strong>
+                            <p style="color: var(--text-secondary); margin-top: 0.3rem;">
+                                <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">Settings</code>에서 진입 시간, 웨이포인트 구간 시간, 분리 기준 조정 가능
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 색상 범례 -->
+                <section>
+                    <h4 style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">색상 범례</h4>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 16px; height: 16px; background: #58a6ff; border-radius: 50%;"></span> 김포 (RKSS)</div>
+                        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 16px; height: 16px; background: #bc8cff; border-radius: 50%;"></span> 청주 (RKTU)</div>
+                        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 16px; height: 16px; background: #39c5bb; border-radius: 50%;"></span> 군산 (RKJK)</div>
+                        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 16px; height: 16px; background: #d29922; border-radius: 50%;"></span> 광주 (RKJJ)</div>
+                        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 16px; height: 16px; background: #ffcc00; border-radius: 50%;"></span> CTOT 지연됨</div>
+                        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 16px; height: 16px; background: #ff4444; border-radius: 50%;"></span> 충돌 경고</div>
+                    </div>
+                </section>
+            </div>
         </div>
     </div>
 
