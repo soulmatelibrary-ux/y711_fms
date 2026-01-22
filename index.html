@@ -10,6 +10,8 @@
     <script src="/src/lib/Sortable.min.js"></script>
     <!-- SheetJS Local -->
     <script src="/src/lib/xlsx.full.min.js"></script>
+    <!-- SQL.js Local -->
+    <script src="/sql-wasm.js"></script>
 </head>
 
 <body class="dark-theme">
@@ -80,7 +82,8 @@
                             <option value="9">9 min</option>
                             <option value="10">10 min</option>
                         </select>
-                        <button id="reset-ctot-btn" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.75rem;" title="CTOT 초기화">Reset CTOT</button>
+                        <button id="reset-ctot-btn" class="btn btn-secondary"
+                            style="padding: 4px 10px; font-size: 0.75rem;" title="CTOT 초기화">Reset CTOT</button>
                     </div>
 
                     <!-- Flight Queue Header -->
@@ -170,7 +173,8 @@
                                 style="padding: 4px 10px; font-size: 0.8rem;">Full View</button>
                             <div id="sim-clock-container"
                                 style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.4); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color);">
-                                <span style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase;">UTC</span>
+                                <span
+                                    style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase;">UTC</span>
                                 <span id="sim-clock"
                                     style="font-family: 'Outfit'; color: var(--accent-cyan); font-weight: 600; font-size: 1.1rem;">00:00</span>
                             </div>

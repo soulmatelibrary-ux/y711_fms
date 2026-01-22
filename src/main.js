@@ -1,5 +1,4 @@
 console.log('main.js: Top-level execution start');
-// import initSqlJs removed for dynamic loading
 
 // SQLite Database
 let db = null;
@@ -8,10 +7,14 @@ let sqlJs = null;
 // Initialize SQLite
 async function initDatabase() {
     try {
-        // Load sql.js from local files in public directory
-        const { default: initSqlJs } = await import('sql.js');
+        // sql.js는 index.html에서 script 태그로 로드됨
+        // window.initSqlJs를 사용
+        if (typeof window.initSqlJs === 'undefined') {
+            console.error('sql.js not loaded. Make sure sql-wasm.js is included in index.html');
+            throw new Error('sql.js not available');
+        }
 
-        sqlJs = await initSqlJs({
+        sqlJs = await window.initSqlJs({
             locateFile: file => `/${file}`
         });
 
@@ -887,7 +890,7 @@ function renderFlightQueue() {
                         if (otherWp && Math.abs(myWp.time - otherWp.time) < separationInterval) {
                             hasConflict = true;
                             const timeDiff = Math.round(Math.abs(myWp.time - otherWp.time) / 60);
-                            conflictInfo = `${myWp.name}에서 ${otherFlight.callsign}과 ${timeDiff}분 분리 (기준: ${separationInterval/60}분)`;
+                            conflictInfo = `${myWp.name}에서 ${otherFlight.callsign}과 ${timeDiff}분 분리 (기준: ${separationInterval / 60}분)`;
                             break;
                         }
                     }
