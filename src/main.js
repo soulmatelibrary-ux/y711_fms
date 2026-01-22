@@ -132,7 +132,7 @@ const waypointCoords = {
 };
 
 const airportDatabase = {
-    'RKSS': { name: '김포', color: '#58a6ff', mergePoint: 'BULTI', firstMerge: 'MEKIL', lat: 37.5583, lon: 126.7906, depInterval: 4, taxiTime: 20 },
+    'RKSS': { name: '김포', color: '#58a6ff', mergePoint: 'BULTI', firstMerge: 'BULTI', lat: 37.5583, lon: 126.7906, depInterval: 4, taxiTime: 20 },
     'RKTU': { name: '청주', color: '#bc8cff', mergePoint: 'BULTI', firstMerge: 'MEKIL', lat: 36.7166, lon: 127.4966, depInterval: 10, taxiTime: 15 },
     'RKJK': { name: '군산', color: '#39c5bb', mergePoint: 'MANGI', firstMerge: 'MANGI', lat: 35.9033, lon: 126.6150, depInterval: 10, taxiTime: 10 },
     'RKJJ': { name: '광주', color: '#d29922', mergePoint: 'DALSU', firstMerge: 'DALSU', lat: 35.1264, lon: 126.8088, depInterval: 10, taxiTime: 12 }
@@ -175,14 +175,6 @@ function updateWaypointDurations() {
         duration: Math.round((cd.dist / totalDist) * baseTotalTime * 10) / 10
     }));
 
-    // Update entry segments as well
-    Object.keys(airportDatabase).forEach(code => {
-        const apt = airportDatabase[code];
-        const mp = waypointCoords[apt.mergePoint];
-        const d = getDistance(apt.lat, apt.lon, mp.lat, mp.lon);
-        // Approximation: 1 min per 10km for entry
-        segmentConfig[`${code}_ENTRY`] = Math.round(d / 10);
-    });
 }
 
 const els = {};
@@ -459,9 +451,11 @@ function getAirportX(code) {
 // ============================================
 function calculateFlightWaypoints(flight, startTimeSec) {
     const route = [];
-    const entryKey = `${flight.airport}_ENTRY`;
+    const apt = airportDatabase[flight.airport];
+    const firstMerge = apt?.firstMerge || apt?.mergePoint;
+    const entryKey = `${flight.airport}_${firstMerge}`;
     const entryDur = segmentConfig[entryKey] || 10;
-    const mpName = airportDatabase[flight.airport].mergePoint;
+    const mpName = apt.mergePoint;
 
     // startTimeSec = CTOT (이륙 시간) - taxiTime 추가 불필요
     // 첫 웨이포인트 도착 = 이륙 + entry 시간
@@ -714,6 +708,49 @@ function updateCTOTs(startIndex = 0) {
 // ============================================
 // UI RENDERING
 // ============================================
+
+// CTOT 상태 판단 함수
+function getCtotStatus(flight, prevFlight, nextFlight) {
+    const eobtSec = timeToSec(flight.eobt);
+    const ctotSec = timeToSec(flight.ctot);
+
+    if (!ctotSec || !eobtSec) return 'normal';
+
+    const diffMin = (ctotSec - eobtSec) / 60;
+    const statuses = [];
+
+    // 간격 위반 체크 (최우선)
+    if (nextFlight && nextFlight.ctot) {
+        const nextCtotSec = timeToSec(nextFlight.ctot);
+        if (nextCtotSec) {
+            const gapSec = nextCtotSec - ctotSec;  // 초 단위로 비교
+            if (gapSec < separationInterval && gapSec >= 0) {
+                statuses.push('conflict');
+            }
+        }
+    }
+
+    // 수동 변경 체크
+    if (flight.isManualCtot) {
+        statuses.push('manual');
+    }
+
+    // 지연/앞당김 체크 (5분 이상)
+    if (diffMin >= 5) {
+        statuses.push('delayed');
+    } else if (diffMin <= -5) {
+        statuses.push('early');
+    }
+
+    // 우선순위: conflict > manual > delayed/early > normal
+    if (statuses.includes('conflict')) return 'conflict';
+    if (statuses.includes('manual')) return 'manual';
+    if (statuses.includes('delayed')) return 'delayed';
+    if (statuses.includes('early')) return 'early';
+
+    return 'normal';
+}
+
 function renderFlightQueue() {
     if (!els.flightQueue) return;
     els.flightQueue.innerHTML = '';
@@ -744,6 +781,11 @@ function renderFlightQueue() {
         const isReference = flight.id === referenceFlightId;
         const isAfterReference = refIndex >= 0 && index > refIndex;
 
+        // CTOT 상태 판단 (인접 항공기 참조)
+        const prevFlight = index > 0 ? allFlights[index - 1] : null;
+        const nextFlight = index < allFlights.length - 1 ? allFlights[index + 1] : null;
+        const ctotStatus = getCtotStatus(flight, prevFlight, nextFlight);
+
         const el = document.createElement('div');
         el.className = 'queue-item';
         if (isCurrentTime) el.classList.add('current-time-flight');
@@ -754,6 +796,11 @@ function renderFlightQueue() {
 
         // 공항별 색상
         const airportColor = airportDatabase[flight.airport]?.color || 'var(--text-primary)';
+
+        // CTOT 상태 클래스 조합
+        const ctotClasses = ['col-ctot', 'ctot-input'];
+        if (flight.isNextDay) ctotClasses.push('next-day-ctot');
+        if (ctotStatus !== 'normal') ctotClasses.push(ctotStatus);
 
         el.innerHTML = `
             <button class="ref-btn" title="기준 항공기로 설정">${isReference ? '⭐' : '☆'}</button>
@@ -769,7 +816,7 @@ function renderFlightQueue() {
                 <input type="text" class="col-atd atd-input" placeholder="-" value="${flight.atd || ''}">
                 ${isCurrentTime ? '<span class="current-time-indicator">📍</span>' : ''}
             </div>
-            <input type="text" class="col-ctot ctot-input ${flight.isNextDay ? 'next-day-ctot' : ''}" value="${flight.ctotUtc || flight.ctot}${flight.isNextDay ? '+1' : ''}" ${flight.atd ? 'disabled' : ''}>
+            <input type="text" class="${ctotClasses.join(' ')}" value="${flight.ctotUtc || flight.ctot}${flight.isNextDay ? '+1' : ''}" ${flight.atd ? 'disabled' : ''}>
         `;
 
         // 기준 항공기 선택 버튼 이벤트
@@ -1094,74 +1141,108 @@ function calculatePosition(flight, elapsedMin, isFullscreen = true) {
     const taxiStartSec = ctotSec - taxiTime; // 택시 시작 = CTOT - 택시시간
     const currentTimeSec = taxiStartSec + (elapsedMin * 60);
 
+    const apt = airportDatabase[flight.airport];
+    const startX = getAirportX(flight.airport);
+    const groundY = 800; // 지상 Y좌표
+
     // 택시 중 (지상) - 화면 하단에서 시작
     if (currentTimeSec < ctotSec) {
         return {
-            x: getAirportX(flight.airport),
-            y: isFullscreen ? 750 : 380
+            x: startX,
+            y: isFullscreen ? groundY : 380
         };
     }
 
-    const startX = getAirportX(flight.airport);
+    // firstMerge 지점 계산 (X와 Y 동기화의 기준점)
+    const firstMergeWp = apt?.firstMerge || apt?.mergePoint;
+    const entryKey = `${flight.airport}_${firstMergeWp}`;
+    const entryDur = segmentConfig[entryKey] || 10;
+    const firstMergeTime = ctotSec + (entryDur * 60); // 직접 계산하여 동기화
+    const firstMergeX = waypointsX[firstMergeWp] || startX;
+
     const route = flight.routeWaypoints || [];
-
-    let prevX = startX, prevTime = ctotSec;
-    let nextX = startX, nextTime = ctotSec;
-
-    for (const wp of route) {
-        if (currentTimeSec < wp.time) {
-            nextX = waypointsX[wp.name] || prevX;
-            nextTime = wp.time;
-            break;
-        }
-        prevX = waypointsX[wp.name] || prevX;
-        prevTime = wp.time;
-    }
-
-    if (nextTime === ctotSec && route.length > 0) {
-        prevX = waypointsX[route[route.length - 1].name];
-        prevTime = route[route.length - 1].time;
-        nextX = 1550;
-        nextTime = ctotSec + (flight.duration * 60);
-    }
-
-    let progress = (nextTime > prevTime) ? (currentTimeSec - prevTime) / (nextTime - prevTime) : 0;
-    const x = prevX + (nextX - prevX) * progress;
+    const airborneSecond = currentTimeSec - ctotSec; // 이륙 후 경과 시간(초)
+    const airborneMin = airborneSecond / 60; // 이륙 후 경과 시간(분)
 
     // 고도 및 비행시간 안전 처리
     const altitude = parseInt(flight.altitude) || 200; // 기본값 FL200
     const cruiseY = altitudeToY(altitude);
-    const groundY = 750;
-    const totalAirborneMin = Math.max(flight.duration || 30, 5); // 최소 5분
-    const climbDuration = Math.max(totalAirborneMin * 0.15, 2); // 상승 시간: 15% 또는 최소 2분
-    const airborneMin = (currentTimeSec - ctotSec) / 60; // 이륙 후 경과 시간
 
-    let y;
-    if (isFullscreen) {
-        if (airborneMin < climbDuration) {
-            // 상승 중: 지상에서 순항고도로 부드럽게 전환
-            const climbProgress = airborneMin / climbDuration;
+    // 같은 공항 출발 항공기들의 Y축 오프셋 계산 (겹침 방지)
+    const sameAirportFlights = allFlights
+        .filter(f => f.airport === flight.airport)
+        .sort((a, b) => timeToSec(a.ctot) - timeToSec(b.ctot));
+    const flightIndex = sameAirportFlights.findIndex(f => f.id === flight.id);
+    const offsetPattern = [0, -25, 25, -50, 50, -75, 75];
+    const yOffset = offsetPattern[flightIndex % offsetPattern.length] || 0;
+
+    let x, y;
+
+    if (currentTimeSec < firstMergeTime) {
+        // 상승 구간: 공항 → firstMerge (X와 Y 동기화)
+        const climbProgress = airborneSecond / (firstMergeTime - ctotSec);
+        x = startX + (firstMergeX - startX) * climbProgress;
+        if (isFullscreen) {
             y = groundY - (groundY - cruiseY) * climbProgress;
         } else {
-            // 순항 중
-            y = cruiseY;
+            const dashGroundY = 330;
+            const dashCruiseY = 270;
+            y = dashGroundY - (dashGroundY - dashCruiseY) * Math.min(climbProgress, 1);
         }
     } else {
-        // Dashboard mode: smooth climb from below line (330) to above line (270)
-        const dashGroundY = 330; // Below the line
-        const dashCruiseY = 270; // Above the line
-        const dashClimbDuration = 3; // 3 minutes climb time
+        // 순항 구간: firstMerge 이후
+        // X 계산: route 웨이포인트 기반
+        let prevX = firstMergeX, prevTime = firstMergeTime;
+        let nextX = firstMergeX, nextTime = firstMergeTime;
 
-        if (airborneMin < dashClimbDuration) {
-            // Climbing phase: smooth transition from below to above the line
-            y = dashGroundY - (dashGroundY - dashCruiseY) * (airborneMin / dashClimbDuration);
+        for (const wp of route) {
+            if (wp.name === firstMergeWp) continue; // firstMerge는 이미 처리됨
+            const wpTime = ctotSec + (entryDur * 60) + getTimeToWaypoint(firstMergeWp, wp.name);
+            if (currentTimeSec < wpTime) {
+                nextX = waypointsX[wp.name] || prevX;
+                nextTime = wpTime;
+                break;
+            }
+            prevX = waypointsX[wp.name] || prevX;
+            prevTime = wpTime;
+        }
+
+        // 마지막 웨이포인트 이후
+        if (nextTime === firstMergeTime && route.length > 0) {
+            const lastWp = route[route.length - 1];
+            prevX = waypointsX[lastWp.name] || firstMergeX;
+            prevTime = lastWp.time;
+            nextX = 1550;
+            nextTime = ctotSec + (flight.duration * 60);
+        }
+
+        const progress = (nextTime > prevTime) ? (currentTimeSec - prevTime) / (nextTime - prevTime) : 0;
+        x = prevX + (nextX - prevX) * progress;
+
+        // Y 계산: 순항 고도 + 오프셋
+        if (isFullscreen) {
+            y = cruiseY + yOffset;
         } else {
-            // Cruise phase: stable above the line
-            y = dashCruiseY;
+            y = 270; // Dashboard cruise Y
         }
     }
 
     return { x, y };
+}
+
+// firstMerge에서 특정 웨이포인트까지 시간 계산
+function getTimeToWaypoint(fromWp, toWp) {
+    let totalTime = 0;
+    let currentWp = fromWp;
+    let safety = 0;
+    while (currentWp !== toWp && safety < 20) {
+        const leg = waypoints.find(wp => wp.from === currentWp);
+        if (!leg) break;
+        totalTime += leg.duration * 60;
+        currentWp = leg.to;
+        safety++;
+    }
+    return totalTime;
 }
 
 function drawAircraft(layer, flight, pos) {
@@ -1639,13 +1720,26 @@ function initTimeline() {
 
     const PX_PER_SEC = 1350 / 3600;
     for (let h = timelineStartHour; h <= timelineEndHour; h++) {
-        for (let m = 0; m < 60; m += 10) {
+        for (let m = 0; m < 60; m += 5) {
             const timeSec = h * 3600 + m * 60;
             const tick = document.createElement('div');
-            tick.className = m === 0 ? 'time-label-tick major' : 'time-label-tick minor';
+
+            // 정시(00분)는 major, 30분은 half-hour, 나머지는 minor
+            if (m === 0) {
+                tick.className = 'time-label-tick major';
+                tick.textContent = `${h}:00`;
+            } else if (m === 30) {
+                tick.className = 'time-label-tick minor half-hour';
+                tick.textContent = `:30`;
+            } else {
+                tick.className = 'time-label-tick minor';
+                // 5분 단위 표시 (15, 45분은 숫자 표시)
+                if (m === 15 || m === 45) {
+                    tick.textContent = `:${m}`;
+                }
+            }
+
             tick.style.left = `${(timeSec - timelineStartHour * 3600) * PX_PER_SEC}px`;
-            if (m === 0) tick.textContent = `${h}:00`;
-            else if (m === 30) { tick.textContent = `:30`; tick.classList.add('half-hour'); }
             els.timeAxis.appendChild(tick);
         }
     }
@@ -1676,7 +1770,7 @@ function initFlightMap() {
 
         // Standard altitude lanes (hidden in dashboard)
         const laneGroup = createSvgEl('g', { id: 'altitude-lane-group' });
-        const ground = createSvgEl('line', { x1: 0, y1: 750, x2: 1600, y2: 750, stroke: '#444', 'stroke-width': 2 });
+        const ground = createSvgEl('line', { x1: 0, y1: 800, x2: 1600, y2: 800, stroke: '#444', 'stroke-width': 2 });
         laneGroup.appendChild(ground);
         for (let fl = 140; fl <= 280; fl += 20) {
             const y = altitudeToY(fl);
@@ -1702,7 +1796,7 @@ function initFlightMap() {
             const opacity = isMergePoint ? 0.7 : 0.3;
 
             const line = createSvgEl('line', {
-                x1: x, y1: 0, x2: x, y2: 750,
+                x1: x, y1: 0, x2: x, y2: 800,
                 stroke: lineColor,
                 'stroke-width': strokeWidth,
                 'stroke-dasharray': '2,2',
@@ -1728,18 +1822,22 @@ function initFlightMap() {
         gAirports.innerHTML = '';
         Object.keys(airportDatabase).forEach(code => {
             const x = getAirportX(code);
-            const color = airportDatabase[code].color || '#fff';
+            const apt = airportDatabase[code];
+            const color = apt.color || '#fff';
 
             // Draw a marker (circle) - 지상 레벨에 배치
-            const circle = createSvgEl('circle', { cx: x, cy: 750, r: 8, fill: color, stroke: '#fff', 'stroke-width': 2 });
+            const circle = createSvgEl('circle', { cx: x, cy: 800, r: 8, fill: color, stroke: '#fff', 'stroke-width': 2 });
             gAirports.appendChild(circle);
 
+            // Draw the airport name (공항명) above circle
+            const nameTxt = createSvgEl('text', { x: x, y: 785, 'text-anchor': 'middle', fill: color, 'font-size': 14, 'font-weight': 'bold', 'style': 'text-shadow: 0 0 4px #000;' });
+            nameTxt.textContent = apt.name;
+            gAirports.appendChild(nameTxt);
+
             // Draw the airport code text below circle (화면 하단)
-            const txt = createSvgEl('text', { x: x, y: 775, 'text-anchor': 'middle', fill: '#fff', 'font-size': 12, 'font-weight': 'bold', 'style': 'text-shadow: 0 0 4px #000;' });
+            const txt = createSvgEl('text', { x: x, y: 825, 'text-anchor': 'middle', fill: '#aaa', 'font-size': 11, 'font-weight': 'normal', 'style': 'text-shadow: 0 0 4px #000;' });
             txt.textContent = code;
             gAirports.appendChild(txt);
-
-            // Add a connector line from airport to surface if needed (already on surface line)
         });
     }
 }
@@ -1802,9 +1900,10 @@ function updateSimulationUI() {
     const windowEndSec = timelineEndHour * 3600;
     const PX_PER_SEC = 1350 / 3600;
 
-    // Only update marker if within timeline range
+    // 마커 위치 계산
     const markerPos = (simTimeSeconds - windowStartSec) * PX_PER_SEC;
 
+    // 마커는 매 프레임 부드럽게 이동 (throttle 없음)
     if (els.timeMarker) {
         if (simTimeSeconds >= windowStartSec && simTimeSeconds <= windowEndSec) {
             els.timeMarker.style.left = `${markerPos}px`;
@@ -1814,9 +1913,9 @@ function updateSimulationUI() {
         }
     }
 
-    // Throttle scroll updates to every 500ms to avoid jitter
+    // 스크롤만 2초마다 업데이트 (마커는 계속 부드럽게 이동)
     const now = Date.now();
-    if (now - lastScrollUpdate > 500) {
+    if (now - lastScrollUpdate > 2000) {
         lastScrollUpdate = now;
 
         const timelineScrollArea = document.querySelector('.timeline-scroll-area');
