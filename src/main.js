@@ -98,24 +98,25 @@ let waypoints = [
 ];
 
 // Conflict detection points - where different airports' flights converge
+// separationMinutes는 전역 separationInterval(초)을 분 단위로 사용
 const conflictZones = [
     {
         name: 'MEKIL_CONVERGENCE',
         waypoint: 'MEKIL',
         airports: ['RKSS', 'RKTU'], // 김포, 청주가 여기서 만남
-        separationMinutes: 1 // 1분 이내 충돌 감지
+        separationMinutes: 3 // 3분 분리 기준 (separationInterval과 동일)
     },
     {
         name: 'MANGI_CONVERGENCE',
         waypoint: 'MANGI',
         airports: ['RKJK'], // 군산
-        separationMinutes: 1
+        separationMinutes: 3
     },
     {
         name: 'DALSU_CONVERGENCE',
         waypoint: 'DALSU',
         airports: ['RKJJ'], // 광주
-        separationMinutes: 1
+        separationMinutes: 3
     }
 ];
 
@@ -455,14 +456,15 @@ function calculateFlightWaypoints(flight, startTimeSec) {
     const firstMerge = apt?.firstMerge || apt?.mergePoint;
     const entryKey = `${flight.airport}_${firstMerge}`;
     const entryDur = segmentConfig[entryKey] || 10;
-    const mpName = apt.mergePoint;
 
-    // startTimeSec = CTOT (이륙 시간) - taxiTime 추가 불필요
-    // 첫 웨이포인트 도착 = 이륙 + entry 시간
+    // startTimeSec = CTOT (이륙 시간)
+    // 첫 웨이포인트(firstMerge) 도착 = 이륙 + entry 시간
+    // 청주는 BULTI를 거치지 않고 바로 MEKIL로 진입
     let currentSec = startTimeSec + (entryDur * 60);
-    route.push({ name: mpName, time: currentSec });
+    route.push({ name: firstMerge, time: currentSec });
 
-    let currentName = mpName;
+    // firstMerge부터 웨이포인트 체인 따라가기
+    let currentName = firstMerge;
     let safety = 0;
     while (safety < 20) {
         const leg = waypoints.find(wp => wp.from === currentName);
@@ -872,6 +874,35 @@ function renderFlightQueue() {
                 flight.ctot = e.target.value;
                 flight.ctotUtc = e.target.value;
                 flight.isManualCtot = true; // Mark as manually adjusted
+
+                // 수동 CTOT 설정 전 충돌 검사
+                const tempWaypoints = calculateFlightWaypoints(flight, timeToSec(flight.ctot));
+                let hasConflict = false;
+                let conflictInfo = '';
+
+                for (const otherFlight of allFlights) {
+                    if (otherFlight.id === flight.id || !otherFlight.routeWaypoints) continue;
+                    for (const myWp of tempWaypoints) {
+                        const otherWp = otherFlight.routeWaypoints.find(wp => wp.name === myWp.name);
+                        if (otherWp && Math.abs(myWp.time - otherWp.time) < separationInterval) {
+                            hasConflict = true;
+                            const timeDiff = Math.round(Math.abs(myWp.time - otherWp.time) / 60);
+                            conflictInfo = `${myWp.name}에서 ${otherFlight.callsign}과 ${timeDiff}분 분리 (기준: ${separationInterval/60}분)`;
+                            break;
+                        }
+                    }
+                    if (hasConflict) break;
+                }
+
+                if (hasConflict) {
+                    console.warn(`⚠️ 수동 CTOT 충돌 경고: ${flight.callsign} - ${conflictInfo}`);
+                    e.target.style.backgroundColor = 'rgba(255, 68, 68, 0.3)';
+                    e.target.title = `충돌 경고: ${conflictInfo}`;
+                } else {
+                    e.target.style.backgroundColor = '';
+                    e.target.title = '';
+                }
+
                 updateCTOTs(0);
             } else { e.target.value = flight.ctot; }
         });
