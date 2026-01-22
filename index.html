@@ -6,13 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Y711 흐름 관리 시스템 (Y711 Merge Point Management)</title>
     <link rel="stylesheet" href="/src/style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap"
-        rel="stylesheet">
     <!-- SortableJS Local -->
     <script src="/src/lib/Sortable.min.js"></script>
+    <!-- SheetJS Local -->
+    <script src="/src/lib/xlsx.full.min.js"></script>
 </head>
 
 <body class="dark-theme">
@@ -25,12 +22,17 @@
                     <button class="nav-btn active" id="view-dashboard">Dashboard</button>
                     <button class="nav-btn" id="view-settings">Settings</button>
                 </nav>
+                <!-- Excel Upload -->
+                <div class="excel-upload-section">
+                    <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display: none;">
+                    <button onclick="document.getElementById('excel-upload').click()" class="btn btn-primary excel-btn">
+                        Excel
+                    </button>
+                    <div id="upload-status" class="upload-status"></div>
+                </div>
             </div>
             <div class="header-center">
-                <div class="sim-status">
-                    <span class="label">Sim Time (UTC)</span>
-                    <span class="value clock" id="sim-clock">14:00:00</span>
-                </div>
+                <!-- Sim Time moved to play button line -->
             </div>
             <div class="header-right">
                 <div class="user-profile">
@@ -44,57 +46,58 @@
         <div class="app-body">
             <!-- 좌측 패널: 항공기 목록 및 CTOT 제어 -->
             <aside class="left-panel">
-                <div class="panel-header">
-                    <h2>Flight Queue</h2>
+                <!-- Combined Header Row -->
+                <div
+                    style="display: flex; align-items: center; gap: 30px; margin-bottom: 20px; padding: 10px 15px; background: rgba(255,255,255,0.02); border-radius: 8px;">
+                    <!-- Schedule Date Section -->
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span
+                            style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Date</span>
+                        <div style="display: flex; align-items: center; gap: 4px;">
+                            <button id="prev-day-btn" class="btn btn-secondary"
+                                style="padding: 4px 8px; min-width: auto; background: transparent;">◀</button>
+                            <input type="date" id="schedule-date"
+                                style="background: rgba(0,0,0,0.2); color: white; border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">
+                            <button id="next-day-btn" class="btn btn-secondary"
+                                style="padding: 4px 8px; min-width: auto; background: transparent;">▶</button>
+                            <button id="today-btn" class="btn btn-secondary"
+                                style="padding: 4px 10px; font-size: 0.8rem; margin-left: 5px;">Today</button>
+                        </div>
+                    </div>
+
+                    <!-- Merge Point Control Section -->
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span
+                            style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Separation</span>
+                        <select id="merge-point-select"
+                            style="background: rgba(0,0,0,0.2); color: white; border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; min-width: 85px;">
+                            <option value="3">3 min</option>
+                            <option value="4">4 min</option>
+                            <option value="5">5 min</option>
+                            <option value="6">6 min</option>
+                            <option value="7">7 min</option>
+                            <option value="8">8 min</option>
+                            <option value="9">9 min</option>
+                            <option value="10">10 min</option>
+                        </select>
+                        <button id="reset-ctot-btn" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.75rem;" title="CTOT 초기화">Reset CTOT</button>
+                    </div>
+
+                    <!-- Flight Queue Header -->
+                    <!-- <div
+                        style="flex: 1; text-align: right; border-left: 1px solid var(--border-color); padding-left: 20px;">
+                        <span
+                            style="font-size: 0.8rem; color: var(--accent-blue); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">Flight
+                            Queue</span>
+                    </div> -->
+                </div>
+
+                <!-- Flight Queue Controls and List -->
+                <!-- <div class="panel-header">
                     <div class="control-row" style="flex-wrap: wrap; gap: 0.5rem;">
-                        <!-- CFL Filter -->
-                        <div class="cfl-filter" style="width: 48%;">
-                            <label style="font-size: 0.75rem; color: var(--text-tertiary);">Filter CFL:</label>
-                            <select id="cfl-filter-select"
-                                style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); padding: 4px; border-radius: 4px;">
-                                <option value="ALL">ALL (Show All)</option>
-                                <option value="FL140">FL140</option>
-                                <option value="FL160">FL160</option>
-                                <option value="FL180">FL180</option>
-                                <option value="FL200">FL200</option>
-                                <option value="FL220">FL220</option>
-                            </select>
-                        </div>
-
-                        <!-- Time Range Filter -->
-                        <div class="time-filter" style="width: 48%;">
-                            <label style="font-size: 0.75rem; color: var(--text-tertiary);">Show Past:</label>
-                            <select id="time-range-select"
-                                style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); padding: 4px; border-radius: 4px;">
-                                <option value="60">Past 1 Hour</option>
-                                <option value="120">Past 2 Hours</option>
-                                <option value="180">Past 3 Hours</option>
-                                <option value="ALL">Show All History</option>
-                            </select>
-                        </div>
-
-                        <!-- Separation Control (Minutes) -->
-                        <div class="separation-control" style="width: 100%; display: flex; flex-direction: column;">
-                            <label
-                                style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 4px;">Separation
-                                (Min):</label>
-                            <div class="sep-buttons" style="display: flex; gap: 4px; flex-wrap: wrap;">
-                                <button class="btn-sep active" data-min="1">1</button>
-                                <button class="btn-sep" data-min="2">2</button>
-                                <button class="btn-sep" data-min="3">3</button>
-                                <button class="btn-sep" data-min="4">4</button>
-                                <button class="btn-sep" data-min="5">5</button>
-                                <button class="btn-sep" data-min="6">6</button>
-                                <button class="btn-sep" data-min="7">7</button>
-                                <button class="btn-sep" data-min="8">8</button>
-                                <button class="btn-sep" data-min="9">9</button>
-                                <button class="btn-sep" data-min="10">10</button>
-                            </div>
-                        </div>
-
                         <button id="sort-cfl-btn" class="btn btn-secondary" style="display: none;">Sort CFL</button>
                     </div>
-                </div>
+                </div> -->
 
                 <div class="flight-queue-header">
                     <span class="col-cs">Callsign</span>
@@ -153,21 +156,32 @@
                 <section class="map-section glass-card">
                     <div class="card-header compact">
                         <h2>Live Route Map</h2>
-                        <div class="sim-controls-compact">
-                            <button class="ctrl-btn" id="prev-btn">⏮</button>
-                            <button class="ctrl-btn main" id="play-btn">▶</button>
-                            <button class="ctrl-btn" id="next-btn">⏭</button>
-                            <select id="speed-select" class="speed-select">
-                                <option value="1">1x</option>
-                                <option value="2">2x</option>
-                                <option value="5">5x</option>
-                                <option value="10">10x</option>
-                                <option value="20">20x</option>
-                            </select>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <button id="map-fullscreen-btn" class="btn btn-secondary"
+                                style="padding: 4px 10px; font-size: 0.8rem;">Full View</button>
+                            <div id="sim-clock-container"
+                                style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.4); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-color);">
+                                <span style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase;">UTC</span>
+                                <span id="sim-clock"
+                                    style="font-family: 'Outfit'; color: var(--accent-cyan); font-weight: 600; font-size: 1.1rem;">00:00</span>
+                            </div>
+                            <div class="sim-controls-compact">
+                                <button class="ctrl-btn" id="prev-btn">⏮</button>
+                                <button class="ctrl-btn main" id="play-btn">▶</button>
+                                <button class="ctrl-btn" id="stop-btn" title="Reset Simulation">⏹</button>
+                                <button class="ctrl-btn" id="next-btn">⏭</button>
+                                <select id="speed-select" class="speed-select">
+                                    <option value="1">1x</option>
+                                    <option value="2">2x</option>
+                                    <option value="5">5x</option>
+                                    <option value="10">10x</option>
+                                    <option value="20">20x</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     <div class="map-container">
-                        <svg id="flight-map-svg" viewBox="0 0 1600 600" preserveAspectRatio="none">
+                        <svg id="flight-map-svg" viewBox="0 0 1600 800" preserveAspectRatio="none">
                             <g id="altitude-lanes"></g>
                             <g id="route-lines"></g>
                             <g id="merge-points"></g>
@@ -193,6 +207,20 @@
             <div class="config-section">
                 <h4>Entry Segments (Initial Leg)</h4>
                 <div class="config-group" id="entry-segments-config">
+                    <!-- JS Generated -->
+                </div>
+            </div>
+
+            <div class="config-section" style="margin-top: 1rem;">
+                <h4>Airport Configuration</h4>
+                <div class="airport-config-header"
+                    style="display:grid; grid-template-columns: 1fr 1fr 1fr 0.5fr; gap:0.5rem; font-size:0.8rem; opacity:0.7; margin-bottom:0.5rem;">
+                    <span>Airport</span>
+                    <span>Taxi Time (Min)</span>
+                    <span>Departure Interval (Min)</span>
+                    <span>Color</span>
+                </div>
+                <div class="config-group" id="airport-config">
                     <!-- JS Generated -->
                 </div>
             </div>

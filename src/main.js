@@ -1,21 +1,89 @@
+console.log('main.js: Top-level execution start');
+// import initSqlJs removed for dynamic loading
+
+// SQLite Database
+let db = null;
+let sqlJs = null;
+
+// Initialize SQLite
+async function initDatabase() {
+    try {
+        // Load sql.js from local files in public directory
+        const { default: initSqlJs } = await import('sql.js');
+
+        sqlJs = await initSqlJs({
+            locateFile: file => `/${file}`
+        });
+
+        console.log('initDatabase: sql.js initialized');
+
+        // Try to load existing database from localStorage
+        const data = localStorage.getItem('fms_database');
+        if (data) {
+            const buffer = new Uint8Array(JSON.parse(data));
+            db = new sqlJs.Database(buffer);
+            console.log('initDatabase: Database loaded from localStorage');
+        } else {
+            db = new sqlJs.Database();
+            console.log('initDatabase: New database created');
+        }
+
+        // Create tables if they don't exist
+        db.run(`
+            CREATE TABLE IF NOT EXISTS flights (
+                id TEXT PRIMARY KEY,
+                callsign TEXT,
+                dept TEXT,
+                dest TEXT,
+                cfl TEXT,
+                eobt_utc TEXT,
+                day_of_week INTEGER,
+                uploaded_date TEXT
+            )
+        `);
+
+        // Load today's flights automatically
+        loadTodaysFlights();
+
+    } catch (error) {
+        console.error('Failed to initialize database (falling back to mock):', error);
+        loadMockScheduleData(); // Fallback to mock data
+    }
+}
+
+// Save database to localStorage
+function saveDatabase() {
+    if (db) {
+        const data = db.export();
+        const buffer = Array.from(data);
+        localStorage.setItem('fms_database', JSON.stringify(buffer));
+    }
+}
+
 // ============================================
 // GLOBAL STATE & DATA
 // ============================================
 let allFlights = [];
 let simInterval = null;
-let simTimeSeconds = 14 * 3600;
+let simTimeSeconds = (() => {
+    const now = new Date();
+    return now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+})();
 let simSpeed = 1;
-let separationInterval = 120; // Seconds (2 minutes default)
+let lastSelectedFlightId = null;
+let separationInterval = 180; // Seconds (3 minutes default)
+let referenceFlightId = null; // 기준 항공기 ID
+let conflictingFlightIds = new Set(); // 충돌 중인 항공기 ID들
 
 // Filter & Config State
-let currentCFLFilter = "ALL";
-let lookbackWindow = 60; 
-
+let selectedDayOfWeek = 1; // Monday default
+let selectedDate = new Date(); // Current selected date
+let excelFlightData = []; // Store uploaded Excel data
 let segmentConfig = {
-    'RKSS_ENTRY': 8,
-    'RKTU_ENTRY': 5,
-    'RKJK_ENTRY': 3,
-    'RKJJ_ENTRY': 1
+    'RKSS_BULTI': 8,
+    'RKTU_MEKIL': 7,
+    'RKJK_MANGI': 3,
+    'RKJJ_DALSU': 1
 };
 
 let waypoints = [
@@ -27,6 +95,28 @@ let waypoints = [
     { from: 'MANGI', to: 'DALSU', duration: 4 },
     { from: 'DALSU', to: 'NULDI', duration: 7 },
     { from: 'NULDI', to: 'DOTOL', duration: 2 }
+];
+
+// Conflict detection points - where different airports' flights converge
+const conflictZones = [
+    {
+        name: 'MEKIL_CONVERGENCE',
+        waypoint: 'MEKIL',
+        airports: ['RKSS', 'RKTU'], // 김포, 청주가 여기서 만남
+        separationMinutes: 1 // 1분 이내 충돌 감지
+    },
+    {
+        name: 'MANGI_CONVERGENCE',
+        waypoint: 'MANGI',
+        airports: ['RKJK'], // 군산
+        separationMinutes: 1
+    },
+    {
+        name: 'DALSU_CONVERGENCE',
+        waypoint: 'DALSU',
+        airports: ['RKJJ'], // 광주
+        separationMinutes: 1
+    }
 ];
 
 const waypointCoords = {
@@ -42,10 +132,10 @@ const waypointCoords = {
 };
 
 const airportDatabase = {
-    'RKSS': { name: '김포', color: 'var(--gmp-color)', mergePoint: 'BULTI', lat: 37.5583, lon: 126.7906 },
-    'RKTU': { name: '청주', color: 'var(--cjj-color)', mergePoint: 'BULTI', lat: 36.7166, lon: 127.4966 },
-    'RKJK': { name: '군산', color: 'var(--kuv-color)', mergePoint: 'MANGI', lat: 35.9033, lon: 126.6150 },
-    'RKJJ': { name: '광주', color: 'var(--kwj-color)', mergePoint: 'DALSU', lat: 35.1264, lon: 126.8088 }
+    'RKSS': { name: '김포', color: '#58a6ff', mergePoint: 'BULTI', firstMerge: 'MEKIL', lat: 37.5583, lon: 126.7906, depInterval: 4, taxiTime: 20 },
+    'RKTU': { name: '청주', color: '#bc8cff', mergePoint: 'BULTI', firstMerge: 'MEKIL', lat: 36.7166, lon: 127.4966, depInterval: 10, taxiTime: 15 },
+    'RKJK': { name: '군산', color: '#39c5bb', mergePoint: 'MANGI', firstMerge: 'MANGI', lat: 35.9033, lon: 126.6150, depInterval: 10, taxiTime: 10 },
+    'RKJJ': { name: '광주', color: '#d29922', mergePoint: 'DALSU', firstMerge: 'DALSU', lat: 35.1264, lon: 126.8088, depInterval: 10, taxiTime: 12 }
 };
 
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -63,22 +153,22 @@ function getDistance(lat1, lon1, lat2, lon2) {
 function updateWaypointDurations() {
     let prevWp = 'BULTI';
     const mainChain = ['MEKIL', 'GONAX', 'BEDES', 'ELPOS', 'MANGI', 'DALSU', 'NULDI', 'DOTOL'];
-    
+
     // Total distance of the main chain
     let totalDist = 0;
     let chainDistances = [];
     let currentPos = waypointCoords['BULTI'];
-    
+
     mainChain.forEach(name => {
         const target = waypointCoords[name];
         const d = getDistance(currentPos.lat, currentPos.lon, target.lat, target.lon);
-        chainDistances.push({ from: name === 'MEKIL' ? 'BULTI' : mainChain[mainChain.indexOf(name)-1], to: name, dist: d });
+        chainDistances.push({ from: name === 'MEKIL' ? 'BULTI' : mainChain[mainChain.indexOf(name) - 1], to: name, dist: d });
         totalDist += d;
         currentPos = target;
     });
 
     // We have 26 minutes total for the chain (2+2+2+3+4+4+7+2)
-    const baseTotalTime = 26; 
+    const baseTotalTime = 26;
     waypoints = chainDistances.map(cd => ({
         from: cd.from,
         to: cd.to,
@@ -100,21 +190,249 @@ const els = {};
 // ============================================
 // HELPERS
 // ============================================
+
+// DAY_OF_WEEK 변환: 숫자(1~7) 또는 한글(월~일) → 숫자(1~7)
+function parseDayOfWeek(value) {
+    if (!value) return 0;
+
+    // 숫자인 경우
+    if (typeof value === 'number') return value;
+
+    const str = String(value).trim();
+
+    // 숫자 문자열인 경우
+    if (/^[1-7]$/.test(str)) return parseInt(str);
+
+    // 한글 요일인 경우
+    const dayMap = {
+        '월': 1, '화': 2, '수': 3, '목': 4, '금': 5, '토': 6, '일': 7,
+        '월요일': 1, '화요일': 2, '수요일': 3, '목요일': 4, '금요일': 5, '토요일': 6, '일요일': 7
+    };
+
+    return dayMap[str] || 0;
+}
+
 function timeToSec(str) {
     if (!str) return 0;
+
+    // 숫자로 들어온 경우 문자열로 변환
+    if (typeof str === 'number') {
+        str = str.toString();
+    }
+
+    // "HHMM" 형식 지원 (콜론 없음)
+    if (typeof str === 'string' && !str.includes(':')) {
+        const padded = str.padStart(4, '0');
+        const h = parseInt(padded.substring(0, 2), 10);
+        const m = parseInt(padded.substring(2, 4), 10);
+        if (!isNaN(h) && !isNaN(m)) {
+            return h * 3600 + m * 60;
+        }
+    }
+
+    // "HH:MM" 형식
     const [h, m] = str.split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return 0;
     return h * 3600 + m * 60;
 }
 
 function secToTime(sec) {
+    if (isNaN(sec) || sec < 0) {
+        console.error('Invalid seconds value:', sec);
+        return "0000";
+    }
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
-    if (h < 0 || m < 0) return "00:00";
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    if (h < 0 || m < 0) return "0000";
+    return `${h.toString().padStart(2, '0')}${m.toString().padStart(2, '0')}`;
+}
+
+// Check if time falls within operational window
+function isInTodaysWindow(timeStr, targetDate = new Date()) {
+    return true; // Accept all times
+}
+
+// Get current UTC time
+function getCurrentUtcTime() {
+    const now = new Date();
+    return `${now.getUTCHours().toString().padStart(2, '0')}${now.getUTCMinutes().toString().padStart(2, '0')}`;
+}
+
+// Find the index of flight closest to current UTC time
+function findCurrentFlightIndex() {
+    if (allFlights.length === 0) {
+        console.log('No flights available, returning index 0');
+        return 0;
+    }
+
+    const now = new Date();
+    // Get current UTC time directly
+    const currentUtcHours = now.getUTCHours();
+    const currentUtcMinutes = now.getUTCMinutes();
+    const currentUtcSec = currentUtcHours * 3600 + currentUtcMinutes * 60;
+
+    console.log(`Current UTC time: ${currentUtcHours.toString().padStart(2, '0')}:${currentUtcMinutes.toString().padStart(2, '0')}`);
+    console.log(`Total flights available: ${allFlights.length}`);
+
+    // Show first few flights for debugging
+    allFlights.slice(0, 5).forEach((flight, idx) => {
+        console.log(`Flight ${idx}: ${flight.callsign} at UTC ${flight.eobtUtc}`);
+    });
+
+    let closestIndex = 0;
+    let minTimeDiff = Infinity;
+
+    allFlights.forEach((flight, index) => {
+        const flightUtcSec = timeToSec(flight.eobtUtc);
+
+        // For operational flights, consider the UTC operational day cycle (21:00-21:00)
+        let adjustedFlightSec = flightUtcSec;
+        let adjustedCurrentSec = currentUtcSec;
+
+        // Operational day boundary handling for UTC times
+        // If current time is in early UTC hours (00:00-08:00) and flight is in evening (21:00-23:59)
+        if (currentUtcSec < 8 * 3600 && flightUtcSec >= 21 * 3600) {
+            adjustedCurrentSec = currentUtcSec + 24 * 3600; // Add 24 hours to current time
+        }
+        // If flight is in early UTC hours (00:00-08:00) and current time is in evening (21:00-23:59)  
+        else if (flightUtcSec < 8 * 3600 && currentUtcSec >= 21 * 3600) {
+            adjustedFlightSec = flightUtcSec + 24 * 3600; // Add 24 hours to flight time
+        }
+
+        const timeDiff = Math.abs(adjustedFlightSec - adjustedCurrentSec);
+
+        if (timeDiff < minTimeDiff) {
+            minTimeDiff = timeDiff;
+            closestIndex = index;
+        }
+    });
+
+    const closestFlight = allFlights[closestIndex];
+    console.log(`Current time closest flight: ${closestFlight?.callsign} at UTC ${closestFlight?.eobtUtc} (index ${closestIndex} of ${allFlights.length})`);
+
+    return closestIndex;
+}
+
+// Save Excel data to SQLite database
+function saveExcelDataToDb(excelData) {
+    if (!db) return;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Clear existing data for today
+    db.run('DELETE FROM flights WHERE uploaded_date = ?', [today]);
+
+    // Insert new data
+    const stmt = db.prepare(`
+        INSERT INTO flights (id, callsign, dept, dest, cfl, eobt_utc, day_of_week, uploaded_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    excelData.forEach((row, index) => {
+        const id = `${today}_${index}`;
+        stmt.run([
+            id,
+            row.CALLSIGN || '',
+            row.DEPT || '',
+            row.DEST || '',
+            row.CFL || '',
+            row.EOBT || '',
+            parseDayOfWeek(row.DAY_OF_WEEK),
+            today
+        ]);
+    });
+
+    stmt.free();
+    saveDatabase();
+    console.log('Excel data saved to database:', excelData.length, 'flights');
+}
+
+// Load today's flights from database
+function loadTodaysFlights() {
+    console.log("=== LOADING TODAY'S FLIGHTS ===");
+
+    if (!db) {
+        console.log('Database not initialized, loading mock data');
+        loadMockScheduleData();
+        return;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const currentDayOfWeek = new Date().getDay(); // 0=Sunday, 1=Monday...
+
+    console.log(`Today: ${today}, Day of week: ${currentDayOfWeek}`);
+    console.log(`Excel data available: ${excelFlightData.length} flights`);
+
+    // If we have Excel data, use it instead of database
+    if (excelFlightData.length > 0) {
+        console.log('Using Excel data directly');
+        selectedDate = new Date();
+        updateDateSelector();
+        loadFlightsForDate();
+        return;
+    }
+
+    try {
+        // Try to load from database first
+        const stmt = db.prepare('SELECT * FROM flights WHERE uploaded_date = ?');
+        const results = stmt.getAsObject(today);
+        stmt.free();
+
+        if (results && Object.keys(results).length > 0) {
+            // Convert database results to flight objects
+            const dbFlights = [];
+            const allResults = db.exec('SELECT * FROM flights WHERE uploaded_date = ?', [today]);
+
+            if (allResults.length > 0) {
+                const rows = allResults[0].values;
+                console.log(`Found ${rows.length} flights in database for today`);
+
+                rows.forEach(row => {
+                    dbFlights.push({
+                        CALLSIGN: row[1],
+                        DEPT: row[2],
+                        DEST: row[3],
+                        CFL: row[4],
+                        EOBT: row[5],
+                        DAY_OF_WEEK: row[6]
+                    });
+                });
+            }
+
+            excelFlightData = dbFlights;
+            console.log('Loaded', dbFlights.length, 'flights from database for today');
+
+            // Set current date as selected
+            selectedDate = new Date();
+            updateDateSelector();
+
+            loadFlightsForDate();
+        } else {
+            console.log('No data in database for today, loading mock data');
+            loadMockScheduleData();
+        }
+    } catch (error) {
+        console.error('Error loading from database:', error);
+        loadMockScheduleData();
+    }
+}
+
+// Update date selector to show current selection
+function updateDateSelector() {
+    const dateSelect = document.getElementById('schedule-date');
+    if (dateSelect) {
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        dateSelect.value = dateStr;
+    }
 }
 
 function validateTime(str) {
-    return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(str);
+    if (!str) return false;
+    // "HHMM" 형식 (콜론 없음)
+    if (/^([01]?[0-9]|2[0-3])[0-5][0-9]$/.test(str)) return true;
+    // "HH:MM" 형식 (하위 호환)
+    if (/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(str)) return true;
+    return false;
 }
 
 function createSvgEl(tag, attrs) {
@@ -145,6 +463,8 @@ function calculateFlightWaypoints(flight, startTimeSec) {
     const entryDur = segmentConfig[entryKey] || 10;
     const mpName = airportDatabase[flight.airport].mergePoint;
 
+    // startTimeSec = CTOT (이륙 시간) - taxiTime 추가 불필요
+    // 첫 웨이포인트 도착 = 이륙 + entry 시간
     let currentSec = startTimeSec + (entryDur * 60);
     route.push({ name: mpName, time: currentSec });
 
@@ -161,14 +481,108 @@ function calculateFlightWaypoints(flight, startTimeSec) {
     return route;
 }
 
+// Detect conflicts at convergence points
+function detectConflicts() {
+    const conflicts = [];
+
+    conflictZones.forEach(zone => {
+        const flightsAtWaypoint = [];
+
+        allFlights.forEach(flight => {
+            if (!flight.routeWaypoints) return;
+
+            const waypoint = flight.routeWaypoints.find(wp => wp.name === zone.waypoint);
+            if (waypoint) {
+                flightsAtWaypoint.push({
+                    flight: flight,
+                    time: waypoint.time,
+                    callsign: flight.callsign
+                });
+            }
+        });
+
+        // Check for conflicts (flights within separation time)
+        for (let i = 0; i < flightsAtWaypoint.length; i++) {
+            for (let j = i + 1; j < flightsAtWaypoint.length; j++) {
+                const timeDiff = Math.abs(flightsAtWaypoint[i].time - flightsAtWaypoint[j].time);
+                const separationSec = zone.separationMinutes * 60;
+
+                if (timeDiff < separationSec) {
+                    conflicts.push({
+                        zone: zone.name,
+                        waypoint: zone.waypoint,
+                        flight1: flightsAtWaypoint[i].flight,
+                        flight2: flightsAtWaypoint[j].flight,
+                        timeDiff: timeDiff,
+                        severity: timeDiff < 30 ? 'critical' : 'warning'
+                    });
+
+                    console.warn(`🚨 CONFLICT at ${zone.waypoint}: ${flightsAtWaypoint[i].callsign} and ${flightsAtWaypoint[j].callsign} separated by ${Math.round(timeDiff)}s`);
+                }
+            }
+        }
+    });
+
+    return conflicts;
+}
+
+// Visual conflict indication in timeline
+function showConflictIndicators(conflicts) {
+    // Remove existing conflict indicators
+    document.querySelectorAll('.conflict-indicator').forEach(el => el.remove());
+
+    const windowStartSec = timelineStartHour * 3600;
+    const PX_PER_SEC = 1350 / 3600;
+
+    conflicts.forEach(conflict => {
+        const track1 = document.querySelector(`.airport-track[data-airport="${conflict.flight1.airport}"]`);
+        const track2 = document.querySelector(`.airport-track[data-airport="${conflict.flight2.airport}"]`);
+
+        if (track1) {
+            const timeVal1 = conflict.flight1.atd || conflict.flight1.ctot;
+            const startSec1 = timeToSec(timeVal1);
+            const left1 = (startSec1 - windowStartSec) * PX_PER_SEC;
+
+            const indicator1 = document.createElement('div');
+            indicator1.className = `conflict-indicator ${conflict.severity}`;
+            indicator1.style.left = `${left1}px`;
+            indicator1.textContent = '⚠️';
+            indicator1.title = `CONFLICT at ${conflict.waypoint}: ${conflict.flight1.callsign} & ${conflict.flight2.callsign}`;
+
+            track1.appendChild(indicator1);
+        }
+
+        if (track2) {
+            const timeVal2 = conflict.flight2.atd || conflict.flight2.ctot;
+            const startSec2 = timeToSec(timeVal2);
+            const left2 = (startSec2 - windowStartSec) * PX_PER_SEC;
+
+            const indicator2 = document.createElement('div');
+            indicator2.className = `conflict-indicator ${conflict.severity}`;
+            indicator2.style.left = `${left2}px`;
+            indicator2.textContent = '⚠️';
+            indicator2.title = `CONFLICT at ${conflict.waypoint}: ${conflict.flight1.callsign} & ${conflict.flight2.callsign}`;
+
+            track2.appendChild(indicator2);
+        }
+    });
+}
+
+
+
 function updateCTOTs(startIndex = 0) {
     if (!els.flightQueue) return;
     const items = Array.from(els.flightQueue.children).filter(el => !el.classList.contains('placeholder'));
     const visibleItems = items.filter(item => item.style.display !== 'none');
 
-    let prevTimeSec = -1;
+    // 기준 항공기 인덱스 찾기
+    const refIndex = referenceFlightId ?
+        visibleItems.findIndex(item => item.dataset.id === referenceFlightId) : -1;
 
-    for (let i = 0; i < visibleItems.length; i++) {
+    // Group flights by airport for departure interval calculation
+    const airportGroups = {};
+
+    for (let i = startIndex; i < visibleItems.length; i++) {
         const item = visibleItems[i];
         const id = item.dataset.id;
         const flight = allFlights.find(f => f.id === id);
@@ -176,27 +590,53 @@ function updateCTOTs(startIndex = 0) {
 
         const eobtSec = timeToSec(flight.eobt);
         let tentativeCtot = eobtSec;
+        flight.recCfl = null;
 
+        // Skip departed flights
         if (flight.atd) {
             tentativeCtot = timeToSec(flight.atd);
             flight.ctot = flight.atd;
             flight.routeWaypoints = calculateFlightWaypoints(flight, tentativeCtot);
-            prevTimeSec = tentativeCtot;
             continue;
         }
 
-        // If manually set, respect it as the base
-        if (flight.isManualCtot && flight.ctot) {
-            tentativeCtot = timeToSec(flight.ctot);
-        } else if (prevTimeSec !== -1) {
-            tentativeCtot = Math.max(prevTimeSec + separationInterval, eobtSec);
+        const airport = flight.airport;
+        const aptInfo = airportDatabase[airport];
+        const depInterval = (aptInfo?.depInterval || 10) * 60; // in seconds
+
+        // Initialize airport group tracking
+        if (!airportGroups[airport]) airportGroups[airport] = [];
+
+        // 기준 항공기 이전: CTOT 비움 (계산하지 않음)
+        if (refIndex >= 0 && i < refIndex) {
+            flight.ctot = '';
+            flight.ctotUtc = '';
+            flight.routeWaypoints = [];
+            continue;
         }
 
+        if (flight.isManualCtot && flight.ctot) {
+            tentativeCtot = timeToSec(flight.ctot);
+        } else {
+            // Priority 1: Must be at or after EOBT
+            tentativeCtot = eobtSec;
+
+            // Priority 2: Maintain airport-specific departure interval
+            const prevFromSameAirport = airportGroups[airport][airportGroups[airport].length - 1];
+            if (prevFromSameAirport) {
+                const prevCtot = timeToSec(prevFromSameAirport.ctot);
+                tentativeCtot = Math.max(tentativeCtot, prevCtot + depInterval);
+            }
+        }
+
+        // Priority 3: Conflict detection (altitude-independent)
+        // Check all waypoints against all flights above in the list
         let conflictFound = true;
         let safetyLoop = 0;
-        while (conflictFound && safetyLoop < 15) {
+        while (conflictFound && safetyLoop < 30) {
             conflictFound = false;
             const myWaypoints = calculateFlightWaypoints(flight, tentativeCtot);
+
             for (let j = 0; j < i; j++) {
                 const otherFlight = allFlights.find(f => f.id === visibleItems[j].dataset.id);
                 if (!otherFlight || !otherFlight.routeWaypoints) continue;
@@ -204,6 +644,7 @@ function updateCTOTs(startIndex = 0) {
                 for (const myWp of myWaypoints) {
                     const otherWp = otherFlight.routeWaypoints.find(wp => wp.name === myWp.name);
                     if (otherWp && Math.abs(myWp.time - otherWp.time) < separationInterval) {
+                        // Priority: LIST ORDER. If I am below in the list, I must wait.
                         const requiredWpTime = otherWp.time + separationInterval;
                         tentativeCtot += (requiredWpTime - myWp.time);
                         conflictFound = true;
@@ -215,23 +656,44 @@ function updateCTOTs(startIndex = 0) {
             safetyLoop++;
         }
 
+        // 모두 UTC 기준이므로 변환 없음
         flight.ctot = secToTime(tentativeCtot);
+        flight.ctotUtc = flight.ctot; // 동일
+
+        // Handle midnight rollover for CTOT display
+        // If CTOT goes beyond 24:00, it should show as next day time
+        if (tentativeCtot >= 24 * 3600) {
+            const nextDayTime = tentativeCtot % (24 * 3600);
+            flight.ctot = secToTime(nextDayTime);
+            flight.ctotUtc = flight.ctot;
+            flight.isNextDay = true; // Flag to indicate next day CTOT
+        } else {
+            flight.isNextDay = false;
+        }
+
         flight.routeWaypoints = calculateFlightWaypoints(flight, tentativeCtot);
-        
+
+        // Debug log for troubleshooting
+        if (isNaN(tentativeCtot) || tentativeCtot < 0) {
+            console.error('Invalid tentativeCtot for flight:', flight.callsign, tentativeCtot);
+            tentativeCtot = eobtSec; // Fallback to EOBT
+            flight.ctot = flight.eobt;
+        }
+
+        airportGroups[airport].push(flight);
+
         // Update total flight duration
         if (flight.routeWaypoints.length > 0) {
             const lastWpTime = flight.routeWaypoints[flight.routeWaypoints.length - 1].time;
             flight.duration = (lastWpTime - tentativeCtot) / 60 + 5;
         }
 
-        prevTimeSec = tentativeCtot;
-
         const input = item.querySelector('.ctot-input');
         if (input && document.activeElement !== input) {
-            input.value = flight.ctot;
+            input.value = flight.ctotUtc || flight.ctot;
             if (tentativeCtot > eobtSec) input.classList.add('delayed');
             else input.classList.remove('delayed');
-            
+
             if (flight.isManualCtot) {
                 input.style.border = '1px solid var(--accent-cyan)';
                 input.style.color = 'var(--accent-cyan)';
@@ -241,6 +703,11 @@ function updateCTOTs(startIndex = 0) {
             }
         }
     }
+
+    // Detect and show conflicts after CTOT calculation
+    const conflicts = detectConflicts();
+    showConflictIndicators(conflicts);
+
     renderTimelineFlights();
 }
 
@@ -251,39 +718,112 @@ function renderFlightQueue() {
     if (!els.flightQueue) return;
     els.flightQueue.innerHTML = '';
 
-    const cutoffTimeSec = lookbackWindow === Infinity ? 0 : simTimeSeconds - (lookbackWindow * 60);
+    console.log("=== RENDERING FLIGHT QUEUE ===");
+    console.log("Total allFlights count:", allFlights.length);
 
-    allFlights.forEach((flight) => {
-        let isVisible = true;
-        if (currentCFLFilter !== "ALL" && flight.cfl !== currentCFLFilter) isVisible = false;
-        
-        const flightTimeSec = timeToSec(flight.atd || flight.eobt);
-        if (flightTimeSec < cutoffTimeSec) isVisible = false;
+    if (allFlights.length === 0) {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'queue-item placeholder';
+        placeholder.textContent = 'No flights loaded';
+        els.flightQueue.appendChild(placeholder);
+        return;
+    }
+
+    // Find current flight index for highlighting
+    const currentIndex = findCurrentFlightIndex();
+    const now = new Date();
+    const currentUtcTime = `${now.getUTCHours().toString().padStart(2, '0')}:${now.getUTCMinutes().toString().padStart(2, '0')}`;
+
+    console.log(`Rendering ${allFlights.length} flights, current time index: ${currentIndex}`);
+
+    // 기준 항공기 인덱스 찾기
+    const refIndex = referenceFlightId ? allFlights.findIndex(f => f.id === referenceFlightId) : -1;
+
+    allFlights.forEach((flight, index) => {
+        const isCurrentTime = index === currentIndex;
+        const isReference = flight.id === referenceFlightId;
+        const isAfterReference = refIndex >= 0 && index > refIndex;
 
         const el = document.createElement('div');
         el.className = 'queue-item';
+        if (isCurrentTime) el.classList.add('current-time-flight');
+        if (isReference) el.classList.add('is-reference');
+        if (isAfterReference) el.classList.add('after-reference');
         el.dataset.id = flight.id;
         if (flight.atd) el.classList.add('departed');
-        if (!isVisible) el.style.display = 'none';
+
+        // 공항별 색상
+        const airportColor = airportDatabase[flight.airport]?.color || 'var(--text-primary)';
 
         el.innerHTML = `
-            <span class="col-cs">${flight.callsign}</span>
+            <button class="ref-btn" title="기준 항공기로 설정">${isReference ? '⭐' : '☆'}</button>
+            <span class="col-cs" style="color: ${airportColor}">${flight.callsign}</span>
             <span class="col-dept">${flight.dept}</span>
             <span class="col-dest">${flight.dest}</span>
-            <span class="col-cfl">${flight.cfl}</span>
-            <span class="col-eobt">${flight.eobt}</span>
-            <input type="text" class="col-atd atd-input" placeholder="-" value="${flight.atd || ''}">
-            <input type="text" class="col-ctot ctot-input" value="${flight.ctot}" ${flight.atd ? 'disabled' : ''}>
+            <div class="col-cfl">
+                <span class="cfl-value">${flight.cfl}</span>
+                ${flight.recCfl ? `<span class="rec-badge" title="Recommended CFL to avoid delay">➜${flight.recCfl}</span>` : ''}
+            </div>
+            <input type="text" class="col-eobt eobt-input" value="${flight.eobtUtc || flight.eobt}">
+            <div class="col-atd-wrapper">
+                <input type="text" class="col-atd atd-input" placeholder="-" value="${flight.atd || ''}">
+                ${isCurrentTime ? '<span class="current-time-indicator">📍</span>' : ''}
+            </div>
+            <input type="text" class="col-ctot ctot-input ${flight.isNextDay ? 'next-day-ctot' : ''}" value="${flight.ctotUtc || flight.ctot}${flight.isNextDay ? '+1' : ''}" ${flight.atd ? 'disabled' : ''}>
         `;
 
+        // 기준 항공기 선택 버튼 이벤트
+        el.querySelector('.ref-btn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (referenceFlightId === flight.id) {
+                referenceFlightId = null; // 해제
+            } else {
+                referenceFlightId = flight.id; // 설정
+                flight.isManualCtot = true; // 기준 항공기는 수동 모드
+            }
+            updateCTOTs(0);
+            renderFlightQueue();
+        });
+
         el.addEventListener('click', (e) => {
-            if (e.target.tagName !== 'INPUT') selectFlight(flight.id);
+            const badge = e.target.closest('.rec-badge');
+            if (badge) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const newCfl = flight.recCfl;
+                flight.cfl = newCfl;
+                flight.altitude = parseInt(newCfl.replace('FL', ''));
+                flight.recCfl = null;
+
+                // Sequence is important: Calculate first, then render
+                updateCTOTs(0);
+                renderFlightQueue();
+                updateFlightMap(); // Refresh map immediately
+                return;
+            }
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') selectFlight(flight.id);
+        });
+
+
+
+        const eobtInput = el.querySelector('.eobt-input');
+        eobtInput?.addEventListener('change', (e) => {
+            if (validateTime(e.target.value)) {
+                flight.eobt = e.target.value;
+                updateCTOTs(0);
+                renderFlightQueue();
+                renderTimelineFlights();
+            } else { e.target.value = flight.eobt; }
         });
 
         const ctotInput = el.querySelector('.ctot-input');
         ctotInput?.addEventListener('change', (e) => {
             if (validateTime(e.target.value)) {
+                // 모든 시간은 UTC 기준
                 flight.ctot = e.target.value;
+                flight.ctotUtc = e.target.value;
                 flight.isManualCtot = true; // Mark as manually adjusted
                 updateCTOTs(0);
             } else { e.target.value = flight.ctot; }
@@ -302,20 +842,43 @@ function renderFlightQueue() {
 
         els.flightQueue.appendChild(el);
     });
+
+    // Scroll to current time flight with improved timing
+    setTimeout(() => {
+        const currentFlightElement = els.flightQueue.querySelector('.current-time-flight');
+        if (currentFlightElement && allFlights.length > 0) {
+            // Ensure the element is fully rendered before scrolling
+            requestAnimationFrame(() => {
+                currentFlightElement.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'nearest'
+                });
+
+                // Add temporary highlight to make it more visible
+                currentFlightElement.style.animation = 'pulse 2s ease-in-out';
+                setTimeout(() => {
+                    currentFlightElement.style.animation = '';
+                }, 2000);
+            });
+
+            console.log(`Scrolled to current time flight: ${allFlights[currentIndex]?.callsign} at index ${currentIndex}`);
+        } else {
+            console.log('No current time flight found for scrolling');
+        }
+    }, 100);
+
+    console.log(`Rendered ${allFlights.length} flights, current time flight at index ${currentIndex} (UTC: ${currentUtcTime})`);
 }
 
 function renderTimelineFlights() {
     document.querySelectorAll('.flight-block').forEach(e => e.remove());
-    const windowStartSec = 12 * 3600;
-    const cutoffTimeSec = lookbackWindow === Infinity ? 0 : simTimeSeconds - (lookbackWindow * 60);
+    const windowStartSec = timelineStartHour * 3600;
     const PX_PER_SEC = 1350 / 3600;
 
     allFlights.forEach(flight => {
         const track = document.querySelector(`.airport-track[data-airport="${flight.airport}"]`);
         if (!track) return;
-
-        const flightTimeSec = timeToSec(flight.atd || flight.eobt);
-        if (flightTimeSec < cutoffTimeSec) return;
 
         const timeVal = flight.atd || flight.ctot;
         const startSec = timeToSec(timeVal);
@@ -324,6 +887,12 @@ function renderTimelineFlights() {
         const block = document.createElement('div');
         block.className = 'flight-block';
         if (flight.atd) block.classList.add('departed');
+
+        // Apply airport color
+        const color = airportDatabase[flight.airport]?.color || 'var(--accent-blue)';
+        block.style.borderColor = color;
+        block.style.background = `linear-gradient(to right, ${color}44, ${color}22)`;
+
         block.style.left = `${left}px`;
         block.textContent = flight.callsign;
         block.dataset.id = flight.id;
@@ -342,16 +911,130 @@ function updateFlightMap() {
     aircraftLayer.innerHTML = '';
 
     allFlights.forEach(flight => {
-        const startSec = flight.atd ? timeToSec(flight.atd) : timeToSec(flight.ctot);
-        if (simTimeSeconds < startSec) return;
-        
+        const ctotSec = flight.atd ? timeToSec(flight.atd) : timeToSec(flight.ctot);
+        if (!ctotSec && ctotSec !== 0) return; // CTOT가 없으면 표시 안 함
+
+        const taxiTime = (airportDatabase[flight.airport]?.taxiTime || 15) * 60;
+        const taxiStartSec = ctotSec - taxiTime; // 택시 시작 = CTOT - 택시시간
+
+        if (simTimeSeconds < taxiStartSec) return; // 택시 시작 전에는 표시 안 함
+
         const totalDurationSec = flight.duration * 60;
-        const arrivalSec = startSec + totalDurationSec;
+        const arrivalSec = ctotSec + totalDurationSec; // 도착 = CTOT(이륙) + 비행시간
         if (simTimeSeconds > arrivalSec) return;
 
-        const elapsedMin = (simTimeSeconds - startSec) / 60;
-        const pos = calculatePosition(flight, elapsedMin);
+        const elapsedMin = (simTimeSeconds - taxiStartSec) / 60;
+        const isFullscreen = els.mapSection?.classList.contains('fullscreen');
+        const pos = calculatePosition(flight, elapsedMin, isFullscreen);
         drawAircraft(aircraftLayer, flight, pos);
+        flight.currentPos = pos; // Store for analysis
+    });
+
+    // --- Separation Analysis ---
+    drawSeparationAnalysis(aircraftLayer);
+}
+
+function drawSeparationAnalysis(layer) {
+    // 이전 충돌 기록 초기화
+    const newConflictingIds = new Set();
+
+    const activeFlights = allFlights
+        .filter(f => {
+            const ctotSec = f.atd ? timeToSec(f.atd) : timeToSec(f.ctot);
+            if (!ctotSec && ctotSec !== 0) return false;
+            const taxiTime = (airportDatabase[f.airport]?.taxiTime || 15) * 60;
+            const taxiStartSec = ctotSec - taxiTime;
+            const arrivalSec = ctotSec + f.duration * 60;
+            return simTimeSeconds >= taxiStartSec && simTimeSeconds <= arrivalSec && f.currentPos;
+        })
+        .sort((a, b) => b.currentPos.x - a.currentPos.x);
+
+    for (let i = 0; i < activeFlights.length - 1; i++) {
+        const lead = activeFlights[i];
+        const follow = activeFlights[i + 1];
+
+        const distPx = lead.currentPos.x - follow.currentPos.x;
+        if (distPx > 15 && distPx < 600) {
+            const leadStartTime = lead.atd ? timeToSec(lead.atd) : timeToSec(lead.ctot);
+            const followStartTime = follow.atd ? timeToSec(follow.atd) : timeToSec(follow.ctot);
+            const timeDiffSec = Math.abs(followStartTime - leadStartTime);
+            const timeDiffMin = timeDiffSec / 60;
+
+            // 분리 기준 위반 체크 (설정값 사용)
+            const isConflict = timeDiffSec < separationInterval;
+
+            if (isConflict) {
+                newConflictingIds.add(lead.id);
+                newConflictingIds.add(follow.id);
+            }
+
+            const midX = (lead.currentPos.x + follow.currentPos.x) / 2;
+            const midY = (lead.currentPos.y + follow.currentPos.y) / 2;
+
+            // 충돌 시 빨간색, 정상 시 흰색
+            const lineColor = isConflict ? 'rgba(255, 68, 68, 0.8)' : 'rgba(255, 255, 255, 0.4)';
+            const lineWidth = isConflict ? 2 : 1;
+
+            const line = createSvgEl('line', {
+                x1: follow.currentPos.x + 10, y1: follow.currentPos.y,
+                x2: lead.currentPos.x - 10, y2: lead.currentPos.y,
+                stroke: lineColor,
+                'stroke-width': lineWidth,
+                'stroke-dasharray': isConflict ? '8,4' : '4,4'
+            });
+
+            const isFullscreen = document.querySelector('.map-section')?.classList.contains('fullscreen');
+            const labelFontSize = isFullscreen ? 14 : 11;
+
+            // 충돌 시 빨간색 + 경고 아이콘
+            const labelColor = isConflict ? '#ff4444' : 'var(--accent-cyan)';
+            const labelText = isConflict ? `⚠️ ${Math.round(timeDiffMin)}min` : `${Math.round(timeDiffMin)}min`;
+
+            const label = createSvgEl('text', {
+                x: midX, y: midY - 5,
+                'text-anchor': 'middle',
+                fill: labelColor,
+                'font-size': `${labelFontSize}px`,
+                'font-weight': 'bold',
+                'style': 'text-shadow: 0 0 4px #000;'
+            });
+            label.textContent = labelText;
+
+            layer.appendChild(line);
+            layer.appendChild(label);
+
+            // 충돌 시 깜빡이는 원 추가
+            if (isConflict) {
+                const warningCircle = createSvgEl('circle', {
+                    cx: midX, cy: midY,
+                    r: 20,
+                    fill: 'none',
+                    stroke: '#ff4444',
+                    'stroke-width': 2,
+                    opacity: 0.7,
+                    class: 'conflict-pulse'
+                });
+                layer.appendChild(warningCircle);
+            }
+        }
+    }
+
+    // 충돌 항공기 ID 업데이트
+    conflictingFlightIds = newConflictingIds;
+
+    // 목록에 충돌 표시 업데이트
+    updateConflictHighlights();
+}
+
+// 목록에서 충돌 항공기 하이라이트
+function updateConflictHighlights() {
+    document.querySelectorAll('.queue-item').forEach(el => {
+        const flightId = el.dataset.id;
+        if (conflictingFlightIds.has(flightId)) {
+            el.classList.add('conflict-warning');
+        } else {
+            el.classList.remove('conflict-warning');
+        }
     });
 }
 
@@ -362,16 +1045,16 @@ function updateWaypointX() {
     const mainChain = ['BULTI', 'MEKIL', 'GONAX', 'BEDES', 'ELPOS', 'MANGI', 'DALSU', 'NULDI', 'DOTOL'];
     let totalDist = 0;
     let dists = [0];
-    for(let i=1; i<mainChain.length; i++) {
-        const p1 = waypointCoords[mainChain[i-1]];
+    for (let i = 1; i < mainChain.length; i++) {
+        const p1 = waypointCoords[mainChain[i - 1]];
         const p2 = waypointCoords[mainChain[i]];
         const d = getDistance(p1.lat, p1.lon, p2.lat, p2.lon);
         totalDist += d;
         dists.push(totalDist);
     }
 
-    const startX = 300; 
-    const endX = 1450;
+    const startX = 200;
+    const endX = 1530;
     const scale = (endX - startX) / totalDist;
 
     mainChain.forEach((name, i) => {
@@ -386,22 +1069,44 @@ function updateWaypointX() {
             const d = getDistance(apt.lat, apt.lon, mpCoords.lat, mpCoords.lon);
             // Put airport to the left of its merge point
             airportX[code] = waypointsX[apt.mergePoint] - (d * scale);
-            
-            // Limit minimum X to 50
-            if (airportX[code] < 50) airportX[code] = 50;
+
+            // Special handling for RKSS/RKTU separation if they are too close
+            if (code === 'RKTU') {
+                const rkssX = getAirportX('RKSS');
+                if (rkssX !== 100) { // Check if RKSS position is already calculated (not fallback)
+                    const diff = Math.abs(airportX[code] - rkssX);
+                    if (diff < 60) {
+                        airportX[code] = rkssX + 65; // Shift RKTU further right for clearer visibility
+                    }
+                }
+            }
+
+            // Limit minimum X to 30
+            if (airportX[code] < 30) airportX[code] = 30;
         }
     });
 }
 
-function calculatePosition(flight, elapsedMin) {
-    const startTimeSec = flight.atd ? timeToSec(flight.atd) : timeToSec(flight.ctot);
-    const currentTimeSec = startTimeSec + (elapsedMin * 60);
+function calculatePosition(flight, elapsedMin, isFullscreen = true) {
+    // CTOT = 이륙 시간 (Calculated Take-Off Time)
+    const ctotSec = flight.atd ? timeToSec(flight.atd) : timeToSec(flight.ctot);
+    const taxiTime = (airportDatabase[flight.airport]?.taxiTime || 15) * 60;
+    const taxiStartSec = ctotSec - taxiTime; // 택시 시작 = CTOT - 택시시간
+    const currentTimeSec = taxiStartSec + (elapsedMin * 60);
+
+    // 택시 중 (지상) - 화면 하단에서 시작
+    if (currentTimeSec < ctotSec) {
+        return {
+            x: getAirportX(flight.airport),
+            y: isFullscreen ? 750 : 380
+        };
+    }
 
     const startX = getAirportX(flight.airport);
     const route = flight.routeWaypoints || [];
-    
-    let prevX = startX, prevTime = startTimeSec;
-    let nextX = startX, nextTime = startTimeSec;
+
+    let prevX = startX, prevTime = ctotSec;
+    let nextX = startX, nextTime = ctotSec;
 
     for (const wp of route) {
         if (currentTimeSec < wp.time) {
@@ -413,33 +1118,90 @@ function calculatePosition(flight, elapsedMin) {
         prevTime = wp.time;
     }
 
-    if (nextTime === startTimeSec && route.length > 0) {
+    if (nextTime === ctotSec && route.length > 0) {
         prevX = waypointsX[route[route.length - 1].name];
         prevTime = route[route.length - 1].time;
         nextX = 1550;
-        nextTime = startTimeSec + (flight.duration * 60);
+        nextTime = ctotSec + (flight.duration * 60);
     }
 
     let progress = (nextTime > prevTime) ? (currentTimeSec - prevTime) / (nextTime - prevTime) : 0;
     const x = prevX + (nextX - prevX) * progress;
 
-    const cruiseY = altitudeToY(flight.altitude);
-    const groundY = 580;
-    const climbRatio = 0.2;
-    const totalProgress = elapsedMin / flight.duration;
-    let y = (totalProgress < climbRatio) ? groundY - (groundY - cruiseY) * (totalProgress / climbRatio) : cruiseY;
-    
+    // 고도 및 비행시간 안전 처리
+    const altitude = parseInt(flight.altitude) || 200; // 기본값 FL200
+    const cruiseY = altitudeToY(altitude);
+    const groundY = 750;
+    const totalAirborneMin = Math.max(flight.duration || 30, 5); // 최소 5분
+    const climbDuration = Math.max(totalAirborneMin * 0.15, 2); // 상승 시간: 15% 또는 최소 2분
+    const airborneMin = (currentTimeSec - ctotSec) / 60; // 이륙 후 경과 시간
+
+    let y;
+    if (isFullscreen) {
+        if (airborneMin < climbDuration) {
+            // 상승 중: 지상에서 순항고도로 부드럽게 전환
+            const climbProgress = airborneMin / climbDuration;
+            y = groundY - (groundY - cruiseY) * climbProgress;
+        } else {
+            // 순항 중
+            y = cruiseY;
+        }
+    } else {
+        // Dashboard mode: smooth climb from below line (330) to above line (270)
+        const dashGroundY = 330; // Below the line
+        const dashCruiseY = 270; // Above the line
+        const dashClimbDuration = 3; // 3 minutes climb time
+
+        if (airborneMin < dashClimbDuration) {
+            // Climbing phase: smooth transition from below to above the line
+            y = dashGroundY - (dashGroundY - dashCruiseY) * (airborneMin / dashClimbDuration);
+        } else {
+            // Cruise phase: stable above the line
+            y = dashCruiseY;
+        }
+    }
+
     return { x, y };
 }
 
 function drawAircraft(layer, flight, pos) {
+    const isFullscreen = document.querySelector('.map-section')?.classList.contains('fullscreen');
+    const fontSize = isFullscreen ? 22 : 18;
+    const timeFontSize = isFullscreen ? 14 : 12;
+    let timeVal = flight.atd || flight.ctot;
+
+    // Get current simulation time
+    const simTime = secToTime(Math.floor(simTimeSeconds));
+
+    // 기준 항공기(⭐)는 빨간색으로 표시
+    const isReference = flight.id === referenceFlightId;
+    const color = isReference ? '#ff4444' : (airportDatabase[flight.airport]?.color || '#fff');
+    const strokeColor = isReference ? '#ff4444' : '#fff';
+
     const g = createSvgEl('g', { transform: `translate(${pos.x}, ${pos.y})` });
-    const color = airportDatabase[flight.airport]?.color || '#fff';
-    const path = createSvgEl('path', { d: 'M0,-6 L-4,4 L0,2 L4,4 Z', fill: color, stroke: '#fff', 'stroke-width': 1, transform: 'rotate(90)' });
-    const label = createSvgEl('text', { x: 0, y: -10, 'text-anchor': 'middle', fill: '#fff', 'font-size': 9, 'font-weight': 'bold' });
-    label.textContent = flight.callsign;
+    // 항공기 크기: 기준 항공기는 더 크게
+    const scale = isReference ? 2.5 : 1.8;
+    const path = createSvgEl('path', {
+        d: 'M0,-6 L-4,4 L0,2 L4,4 Z',
+        fill: color,
+        stroke: strokeColor,
+        'stroke-width': isReference ? 2 : 1,
+        transform: `rotate(90) scale(${scale})`
+    });
+
+    // Callsign and CTOT label (위치 조정 - 항공기 크기에 맞게)
+    const labelY = isReference ? -20 : -16;
+    const label = createSvgEl('text', { x: 0, y: labelY, 'text-anchor': 'middle', fill: color, 'font-size': fontSize, 'font-weight': 'bold', 'style': 'text-shadow: 0 0 3px #000;' });
+    label.textContent = `${flight.callsign}(${timeVal})${isReference ? '⭐' : ''}`;
+
+    // Simulation time label (below aircraft)
+    const simTimeLabelY = isReference ? 18 : 14;
+    const simTimeLabel = createSvgEl('text', { x: 0, y: simTimeLabelY, 'text-anchor': 'middle', fill: '#aaa', 'font-size': timeFontSize, 'font-weight': 'normal', 'style': 'text-shadow: 0 0 2px #000;' });
+    simTimeLabel.textContent = simTime;
+
     g.appendChild(path);
     g.appendChild(label);
+    g.appendChild(simTimeLabel);
     layer.appendChild(g);
 }
 
@@ -449,11 +1211,10 @@ function drawAircraft(layer, flight, pos) {
 function cacheOMElements() {
     els.simClock = document.getElementById('sim-clock');
     els.flightQueue = document.getElementById('flight-queue');
-    els.cflFilter = document.getElementById('cfl-filter-select');
-    els.timeRangeFilter = document.getElementById('time-range-select');
-    els.sepButtons = document.querySelectorAll('.btn-sep');
+    els.mergePointSelect = document.getElementById('merge-point-select');
     els.calcBtn = document.getElementById('calc-ctot-btn');
     els.playBtn = document.getElementById('play-btn');
+    els.stopBtn = document.getElementById('stop-btn');
     els.prevBtn = document.getElementById('prev-btn');
     els.nextBtn = document.getElementById('next-btn');
     els.speedSelect = document.getElementById('speed-select');
@@ -463,40 +1224,68 @@ function cacheOMElements() {
     els.settingsModal = document.getElementById('settings-modal');
     els.saveSettingsBtn = document.getElementById('save-settings');
     els.addWaypointBtn = document.getElementById('add-waypoint-btn');
+    els.mapFullscreenBtn = document.getElementById('map-fullscreen-btn');
+    els.mapSection = document.querySelector('.map-section');
+    els.mapSimClock = document.getElementById('map-sim-clock');
+    els.mapClockContainer = document.getElementById('map-clock-container');
 }
 
 function setupEventListeners() {
-    els.cflFilter?.addEventListener('change', (e) => {
-        currentCFLFilter = e.target.value;
-        renderFlightQueue();
+    // Merge Point Selection
+    els.mergePointSelect?.addEventListener('change', (e) => {
+        separationInterval = parseInt(e.target.value) * 60;
         updateCTOTs(0);
     });
 
-    els.timeRangeFilter?.addEventListener('change', (e) => {
-        const val = e.target.value;
-        lookbackWindow = val === 'ALL' ? Infinity : parseInt(val);
-        renderFlightQueue();
-        renderTimelineFlights();
-    });
-
-    els.sepButtons?.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            els.sepButtons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            separationInterval = parseInt(btn.dataset.min) * 60;
-            updateCTOTs(0);
-        });
-    });
+    // Set default value
+    if (els.mergePointSelect) {
+        els.mergePointSelect.value = '3';
+        separationInterval = 3 * 60;
+    }
 
     els.calcBtn?.addEventListener('click', () => updateCTOTs(0));
-    els.playBtn?.addEventListener('click', togglePlay);
-    els.prevBtn?.addEventListener('click', () => jumpTime(-300));
+    els.playBtn?.addEventListener('click', togglePlay); els.stopBtn?.addEventListener('click', resetSimulation); els.prevBtn?.addEventListener('click', () => jumpTime(-300));
     els.nextBtn?.addEventListener('click', () => jumpTime(300));
     els.speedSelect?.addEventListener('change', (e) => simSpeed = parseInt(e.target.value));
 
+    // CTOT 초기화 버튼
+    document.getElementById('reset-ctot-btn')?.addEventListener('click', async () => {
+        if (confirm('모든 CTOT를 초기화하시겠습니까?')) {
+            referenceFlightId = null;
+            await loadScheduleData();
+            updateCTOTs(0);
+            renderFlightQueue();
+            renderTimelineFlights();
+        }
+    });
+
+    els.mapFullscreenBtn?.addEventListener('click', () => {
+        if (els.mapSection) {
+            const isFullscreen = els.mapSection.classList.toggle('fullscreen');
+            els.mapFullscreenBtn.textContent = isFullscreen ? 'Close View' : 'Full View';
+            if (els.mapClockContainer) els.mapClockContainer.style.display = isFullscreen ? 'flex' : 'none';
+            updateFlightMap(); // Refresh to update font sizes
+        }
+    });
+
     document.getElementById('view-settings')?.addEventListener('click', () => {
-        renderSettings();
-        els.settingsModal?.classList.remove('hidden');
+        console.log('Settings button clicked');
+        try {
+            renderSettings();
+            if (els.settingsModal) {
+                els.settingsModal.classList.remove('hidden');
+                console.log('Settings modal shown');
+            } else {
+                console.error('settingsModal element not found in cache');
+                // Fallback attempt to cache
+                els.settingsModal = document.getElementById('settings-modal');
+                els.settingsModal?.classList.remove('hidden');
+            }
+        } catch (err) {
+            console.error('Error rendering settings:', err);
+            // Still try to show the modal even if rendering partially failed
+            els.settingsModal?.classList.remove('hidden');
+        }
     });
     document.getElementById('close-settings')?.addEventListener('click', () => {
         els.settingsModal?.classList.add('hidden');
@@ -504,6 +1293,48 @@ function setupEventListeners() {
 
     els.saveSettingsBtn?.addEventListener('click', saveSettings);
     els.addWaypointBtn?.addEventListener('click', addWaypointInput);
+
+    // Excel Upload
+    document.getElementById('excel-upload')?.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) processExcelFile(file);
+    });
+
+    // Date Selection
+    document.getElementById('schedule-date')?.addEventListener('change', (e) => {
+        selectedDate = new Date(e.target.value);
+        selectedDate.setHours(12); // Set to noon to avoid timezone issues
+        if (excelFlightData.length > 0) {
+            loadFlightsForDate();
+        }
+    });
+
+    // Previous Day Button
+    document.getElementById('prev-day-btn')?.addEventListener('click', () => {
+        selectedDate.setDate(selectedDate.getDate() - 1);
+        updateDateSelector();
+        if (excelFlightData.length > 0) {
+            loadFlightsForDate();
+        }
+    });
+
+    // Next Day Button
+    document.getElementById('next-day-btn')?.addEventListener('click', () => {
+        selectedDate.setDate(selectedDate.getDate() + 1);
+        updateDateSelector();
+        if (excelFlightData.length > 0) {
+            loadFlightsForDate();
+        }
+    });
+
+    // Today Button
+    document.getElementById('today-btn')?.addEventListener('click', () => {
+        selectedDate = new Date();
+        updateDateSelector();
+        if (excelFlightData.length > 0) {
+            loadFlightsForDate();
+        }
+    });
 
     // SortableJS initialization for drag & drop rescheduling
     if (typeof Sortable !== 'undefined' && els.flightQueue) {
@@ -513,81 +1344,349 @@ function setupEventListeners() {
             filter: 'input',
             preventOnFilter: false,
             onEnd: () => {
+                // DOM 순서에 맞게 allFlights 배열 재정렬
+                const items = Array.from(els.flightQueue.children).filter(el => !el.classList.contains('placeholder'));
+                const newOrder = [];
+                items.forEach(item => {
+                    const flight = allFlights.find(f => f.id === item.dataset.id);
+                    if (flight) {
+                        // 기준 항공기의 수동 CTOT는 유지, 나머지는 초기화
+                        if (flight.id !== referenceFlightId) {
+                            flight.isManualCtot = false;
+                        }
+                        newOrder.push(flight);
+                    }
+                });
+                allFlights = newOrder;
                 updateCTOTs(0);
+                renderFlightQueue();
             }
         });
     }
 }
 
-async function loadScheduleData() {
-    const mockFlights = [];
-    const currentTimeSec = 14 * 3600;
-    const configs = [
-        { code: 'RKSS', count: 10, prefix: 'KAL' },
-        { code: 'RKTU', count: 5, prefix: 'ASIANA' },
-        { code: 'RKJK', count: 2, prefix: 'JINAIR' },
-        { code: 'RKJJ', count: 2, prefix: 'JEJU' }
-    ];
+function processExcelFile(file) {
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
-    let idx = 0;
-    configs.forEach(cfg => {
-        for (let i = 0; i < cfg.count; i++) {
-            const eobtSec = currentTimeSec + (idx * 300);
-            const alt = 240; // All flights set to FL240 for testing
-            mockFlights.push({
-                id: `F${3000 + idx}`,
-                callsign: `${cfg.prefix}${100 + i}`,
-                airport: cfg.code,
-                dept: cfg.code, dest: 'RKPC', type: 'A321',
-                eobt: secToTime(eobtSec), atd: null, ctot: secToTime(eobtSec),
-                status: 'SCH', duration: 60, altitude: alt, cfl: `FL${alt}`, routeWaypoints: []
-            });
-            idx++;
+            console.log('Excel data loaded:', jsonData.length, 'rows');
+            excelFlightData = jsonData;
+
+            // Save to database
+            saveExcelDataToDb(jsonData);
+
+            loadFlightsForDate(); // Use new date-based loading
+
+            // Show success message
+            const statusDiv = document.getElementById('upload-status');
+            if (statusDiv) {
+                statusDiv.textContent = `✅ ${jsonData.length} flights loaded and saved`;
+                statusDiv.style.color = '#00ff00';
+                setTimeout(() => {
+                    statusDiv.textContent = '';
+                }, 3000);
+            }
+        } catch (error) {
+            console.error('Error reading Excel file:', error);
+            const statusDiv = document.getElementById('upload-status');
+            if (statusDiv) {
+                statusDiv.textContent = '❌ Error processing file';
+                statusDiv.style.color = '#ff4444';
+            }
         }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// Load flights for selected date (UTC 21:00 to UTC 21:00 next day cycle)
+function loadFlightsForDate(targetDate = selectedDate) {
+    console.log("=== LOADING FLIGHTS FOR DATE ===");
+    console.log("Target date:", targetDate.toDateString());
+    console.log("Excel data available:", excelFlightData.length, "flights");
+
+    if (excelFlightData.length === 0) {
+        console.log('No Excel data, using mock data');
+        loadMockScheduleData();
+        return;
+    }
+
+    // Get day of week for the selected operational day
+    // Excel uses 1=Monday, 2=Tuesday, ... 7=Sunday
+    // JS getDay() uses 0=Sunday, 1=Monday, ... 6=Saturday
+    // Convert JS to Excel format: Sunday 0->7, others stay same
+    const jsDayOfWeek = targetDate.getDay();
+    const targetDayOfWeek = jsDayOfWeek === 0 ? 7 : jsDayOfWeek; // Convert to Excel format (1-7)
+
+    const mockFlights = [];
+
+    // Filter Excel data for the selected day of week
+    const todaysFlights = excelFlightData.filter(row => {
+        const dayOfWeek = parseDayOfWeek(row.DAY_OF_WEEK);
+        return dayOfWeek === targetDayOfWeek;
     });
 
-    allFlights = mockFlights.sort((a, b) => timeToSec(a.eobt) - timeToSec(b.eobt));
-    simTimeSeconds = currentTimeSec;
-    console.log("Mock data loaded:", allFlights.length);
+    console.log(`Filtered flights for day of week ${targetDayOfWeek} (${targetDate.toDateString()}): ${todaysFlights.length} flights`);
+
+    // All flights for this day of week are included in the operational period
+    const filteredFlights = todaysFlights;
+
+    console.log(`Processing ${filteredFlights.length} flights for operational day...`);
+
+    filteredFlights.forEach((row, idx) => {
+        const callsign = row.CALLSIGN || `FL${idx}`;
+        const dept = row.DEPT || 'RKSS';
+        const dest = row.DEST || 'RKPC';
+        const cfl = row.CFL || 'FL280';
+
+        // EOBT를 HHMM 형식으로 유지 (콜론 없음)
+        // Excel EOBT는 이미 UTC 값임
+        let eobt = row.EOBT || '1400';
+        if (typeof eobt === 'number') {
+            // 숫자로 들어온 경우 (예: 1430 → "1430")
+            eobt = eobt.toString().padStart(4, '0');
+        } else if (typeof eobt === 'string') {
+            // 콜론이 있으면 제거하고 4자리로 패딩
+            eobt = eobt.replace(':', '').padStart(4, '0');
+        }
+
+        // EOBT는 이미 UTC이므로 변환 없이 그대로 사용
+        const eobtUtc = eobt;
+
+        const altitude = parseInt(cfl.replace('FL', ''));
+
+        mockFlights.push({
+            id: `F${3000 + idx}`,
+            callsign: callsign,
+            airport: dept,
+            dept: dept,
+            dest: dest,
+            type: 'A321',
+            eobt: eobt, // UTC time (from Excel)
+            eobtUtc: eobtUtc, // Same as eobt (already UTC)
+            atd: null,
+            ctot: eobt,
+            status: 'SCH',
+            duration: 60,
+            altitude: altitude,
+            cfl: cfl,
+            routeWaypoints: []
+        });
+    });
+
+    // Convert EOBT to Operational Day Base Time (EOBD) for proper sorting
+    // 운항일 기준: UTC 20:00 ~ 다음날 UTC 19:59
+    // 정렬 순서: UTC 20:00~23:59 → 00:00~11:59 → 12:00~19:59
+    mockFlights.forEach(flight => {
+        const eobtUtcSec = timeToSec(flight.eobtUtc);
+
+        // Operational day starts at UTC 20:00
+        // UTC 20:00~23:59: 그대로 (먼저 표시)
+        // UTC 00:00~19:59: +24시간 (나중에 표시)
+        flight.eobd = eobtUtcSec < 20 * 3600 ? eobtUtcSec + 24 * 3600 : eobtUtcSec;
+    });
+
+    // Sort by EOBD - UTC 20:00+ comes first, then 00:00-19:59
+    mockFlights.sort((a, b) => a.eobd - b.eobd);
+
+    console.log(`EOBD sorting complete. First 5 flights after sort:`);
+    mockFlights.slice(0, 5).forEach((flight, idx) => {
+        console.log(`  ${idx + 1}. ${flight.callsign} - UTC: ${flight.eobtUtc}, EOBD: ${flight.eobdFormatted}`);
+    });
+
+    allFlights = mockFlights;
+    selectedDayOfWeek = targetDayOfWeek;
+
+    console.log(`✅ FLIGHTS LOADED SUCCESSFULLY:`);
+    console.log(`  - Operational day: ${targetDate.toDateString()}`);
+    console.log(`  - Day of week: ${targetDayOfWeek}`);
+    console.log(`  - Total flights: ${allFlights.length}`);
+    console.log(`  - Time range: ${allFlights[0]?.eobtUtc || 'N/A'} - ${allFlights[allFlights.length - 1]?.eobtUtc || 'N/A'} UTC`);
+
+    renderFlightQueue();
+    updateCTOTs(0);
+    renderTimelineFlights();
 }
+
+function loadMockScheduleData() {
+    console.log("=== LOADING MOCK SCHEDULE DATA ===");
+
+    const mockFlights = [];
+    const baseTimeSec = 6 * 3600; // Start at 06:00 UTC
+    const timeRange = 18 * 3600; // Span 18 hours (until 24:00)
+
+    // 김포는 거의 계속 운항, 다른 공항들과 섞여서 EOBT 생성
+    const flightSchedule = [];
+
+    // 김포(RKSS): 높은 빈도 - 전체 약 120편
+    for (let i = 0; i < 120; i++) {
+        flightSchedule.push({
+            code: 'RKSS',
+            callsign: `KAL${100 + i}`,
+            eobtOffset: Math.random() * timeRange,
+            prefs: [280, 260, 180, 160]
+        });
+    }
+
+    // 청주(RKTU): 약 60편
+    for (let i = 0; i < 60; i++) {
+        flightSchedule.push({
+            code: 'RKTU',
+            callsign: `AAR${100 + i}`,
+            eobtOffset: Math.random() * timeRange,
+            prefs: [280, 260, 200, 140]
+        });
+    }
+
+    // 군산(RKJK): 약 20편
+    for (let i = 0; i < 20; i++) {
+        flightSchedule.push({
+            code: 'RKJK',
+            callsign: `JNA${100 + i}`,
+            eobtOffset: Math.random() * timeRange,
+            prefs: [200, 180]
+        });
+    }
+
+    // 광주(RKJJ): 약 20편
+    for (let i = 0; i < 20; i++) {
+        flightSchedule.push({
+            code: 'RKJJ',
+            callsign: `JJA${100 + i}`,
+            eobtOffset: Math.random() * timeRange,
+            prefs: [160, 140]
+        });
+    }
+
+    console.log(`Created ${flightSchedule.length} flight schedules`);
+
+    // 시간순으로 정렬하여 현실적인 섞임 구현
+    flightSchedule.sort((a, b) => a.eobtOffset - b.eobtOffset);
+
+    // Mock flight 객체 생성
+    flightSchedule.forEach((sched, idx) => {
+        const eobtSec = baseTimeSec + Math.floor(sched.eobtOffset);
+        const alt = sched.prefs[idx % sched.prefs.length];
+
+        // Operational Day calculation for mock data (Simple)
+        // Assume current day
+        const now = new Date();
+        const operationalDateStr = now.getFullYear().toString() +
+            (now.getMonth() + 1).toString().padStart(2, '0') +
+            now.getDate().toString().padStart(2, '0');
+
+        const eobdTimeStr = secToTime(eobtSec);
+
+        mockFlights.push({
+            id: `F${3000 + idx}`,
+            callsign: sched.callsign,
+            airport: sched.code,
+            dept: sched.code, dest: 'RKPC', type: 'A321',
+            eobt: secToTime(eobtSec),
+            eobtUtc: secToTime(eobtSec), // Same as eobt for mock data
+            eobdFormatted: `${operationalDateStr} ${eobdTimeStr}`,
+            atd: null, ctot: secToTime(eobtSec),
+            status: 'SCH', duration: 60, altitude: alt, cfl: `FL${alt}`, routeWaypoints: []
+        });
+    });
+
+    allFlights = mockFlights;
+
+    // Set sim time to current real time in UTC seconds
+    const now = new Date();
+    simTimeSeconds = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+
+    console.log(`✅ MOCK DATA LOADED:`);
+    console.log(`  - Total flights: ${allFlights.length}`);
+    console.log(`  - Time range: ${allFlights[0]?.eobt || 'N/A'} - ${allFlights[allFlights.length - 1]?.eobt || 'N/A'}`);
+
+    renderFlightQueue();
+    updateCTOTs(0);
+    renderTimelineFlights();
+}
+
+async function loadScheduleData() {
+    // Check if we have Excel data, otherwise use mock data
+    if (excelFlightData.length > 0) {
+        loadFlightsForDate();
+    } else {
+        await loadMockScheduleData();
+    }
+}
+
+// 타임라인 시간 범위 (동적으로 계산)
+let timelineStartHour = 0;
+let timelineEndHour = 24;
 
 function initTimeline() {
     if (!els.timeAxis) return;
     els.timeAxis.innerHTML = '';
+
+    // 비행 데이터 기반으로 시간 범위 계산
+    if (allFlights.length > 0) {
+        const times = allFlights.map(f => timeToSec(f.eobt || f.ctot)).filter(t => t > 0);
+        if (times.length > 0) {
+            const minTime = Math.min(...times);
+            const maxTime = Math.max(...times);
+            timelineStartHour = Math.max(0, Math.floor(minTime / 3600) - 1);
+            timelineEndHour = Math.min(24, Math.ceil(maxTime / 3600) + 2);
+        }
+    }
+
     const PX_PER_SEC = 1350 / 3600;
-    for (let h = 12; h <= 20; h++) {
+    for (let h = timelineStartHour; h <= timelineEndHour; h++) {
         for (let m = 0; m < 60; m += 10) {
             const timeSec = h * 3600 + m * 60;
             const tick = document.createElement('div');
             tick.className = m === 0 ? 'time-label-tick major' : 'time-label-tick minor';
-            tick.style.left = `${(timeSec - 12 * 3600) * PX_PER_SEC}px`;
+            tick.style.left = `${(timeSec - timelineStartHour * 3600) * PX_PER_SEC}px`;
             if (m === 0) tick.textContent = `${h}:00`;
             else if (m === 30) { tick.textContent = `:30`; tick.classList.add('half-hour'); }
             els.timeAxis.appendChild(tick);
         }
     }
     renderTimelineFlights();
+
+    // Initialize timeline scroll to current simulation time
+    setTimeout(() => {
+        updateSimulationUI();
+    }, 100);
 }
 
 function initFlightMap() {
     if (!els.mapSvg) return;
-    
+
     // Update waypoint positions based on cumulative distance for the X-axis
     updateWaypointX();
 
     const gLanes = document.getElementById('altitude-lanes');
     if (gLanes) {
         gLanes.innerHTML = '';
-        const ground = createSvgEl('line', { x1: 0, y1: 580, x2: 1600, y2: 580, stroke: '#444', 'stroke-width': 2 });
-        gLanes.appendChild(ground);
+        // Dashboard single line (hidden in fullscreen)
+        const dashLine = createSvgEl('line', {
+            id: 'dashboard-route-line',
+            x1: 0, y1: 300, x2: 1600, y2: 300,
+            stroke: 'rgba(255,255,255,0.1)', 'stroke-width': 1
+        });
+        gLanes.appendChild(dashLine);
+
+        // Standard altitude lanes (hidden in dashboard)
+        const laneGroup = createSvgEl('g', { id: 'altitude-lane-group' });
+        const ground = createSvgEl('line', { x1: 0, y1: 750, x2: 1600, y2: 750, stroke: '#444', 'stroke-width': 2 });
+        laneGroup.appendChild(ground);
         for (let fl = 140; fl <= 280; fl += 20) {
             const y = altitudeToY(fl);
             const line = createSvgEl('line', { x1: 0, y1: y, x2: 1600, y2: y, stroke: '#333', 'stroke-width': 1, 'stroke-dasharray': '5,5' });
-            gLanes.appendChild(line);
+            laneGroup.appendChild(line);
             const txt = createSvgEl('text', { x: 10, y: y + 4, fill: '#666', 'font-size': 10 });
             txt.textContent = `FL${fl}`;
-            gLanes.appendChild(txt);
+            laneGroup.appendChild(txt);
         }
+        gLanes.appendChild(laneGroup);
     }
 
     const gMP = document.getElementById('merge-points');
@@ -595,9 +1694,30 @@ function initFlightMap() {
         gMP.innerHTML = '';
         Object.keys(waypointsX).forEach(name => {
             const x = waypointsX[name];
-            const line = createSvgEl('line', { x1: x, y1: 0, x2: x, y2: 580, stroke: 'var(--accent-cyan)', 'stroke-width': 1, 'stroke-dasharray': '2,2', opacity: 0.3 });
+            // Highlight merge points with different colors
+            const isMergePoint = ['MEKIL', 'MANGI', 'DALSU'].includes(name);
+            const lineColor = isMergePoint ? 'var(--accent-orange)' : 'var(--accent-cyan)';
+            const textColor = isMergePoint ? 'var(--accent-orange)' : 'var(--accent-cyan)';
+            const strokeWidth = isMergePoint ? 2 : 1;
+            const opacity = isMergePoint ? 0.7 : 0.3;
+
+            const line = createSvgEl('line', {
+                x1: x, y1: 0, x2: x, y2: 750,
+                stroke: lineColor,
+                'stroke-width': strokeWidth,
+                'stroke-dasharray': '2,2',
+                opacity: opacity
+            });
             gMP.appendChild(line);
-            const txt = createSvgEl('text', { x: x, y: 20, fill: 'var(--accent-cyan)', 'text-anchor': 'middle', 'font-size': 11 });
+
+            const txt = createSvgEl('text', {
+                x: x, y: 20,
+                fill: textColor,
+                'text-anchor': 'middle',
+                'font-size': isMergePoint ? 24 : 20,
+                'font-weight': isMergePoint ? 'bold' : 'normal',
+                'style': 'text-shadow: 0 0 3px #000;'
+            });
             txt.textContent = name;
             gMP.appendChild(txt);
         });
@@ -609,24 +1729,59 @@ function initFlightMap() {
         Object.keys(airportDatabase).forEach(code => {
             const x = getAirportX(code);
             const color = airportDatabase[code].color || '#fff';
-            
-            // Draw a marker (circle) slightly above ground for visibility
-            const circle = createSvgEl('circle', { cx: x, cy: 575, r: 6, fill: color, stroke: '#fff', 'stroke-width': 2 });
+
+            // Draw a marker (circle) - 지상 레벨에 배치
+            const circle = createSvgEl('circle', { cx: x, cy: 750, r: 8, fill: color, stroke: '#fff', 'stroke-width': 2 });
             gAirports.appendChild(circle);
 
-            // Draw the airport code text slightly higher
-            const txt = createSvgEl('text', { x: x, y: 592, 'text-anchor': 'middle', fill: '#fff', 'font-size': 12, 'font-weight': 'bold', 'style': 'text-shadow: 0 0 4px #000;' });
+            // Draw the airport code text below circle (화면 하단)
+            const txt = createSvgEl('text', { x: x, y: 775, 'text-anchor': 'middle', fill: '#fff', 'font-size': 12, 'font-weight': 'bold', 'style': 'text-shadow: 0 0 4px #000;' });
             txt.textContent = code;
             gAirports.appendChild(txt);
-            
+
             // Add a connector line from airport to surface if needed (already on surface line)
         });
     }
 }
 
+function resetSimulation() {
+    if (simInterval) { clearInterval(simInterval); simInterval = null; }
+    if (els.playBtn) els.playBtn.textContent = '▶';
+
+    // Reset simulation time to current UTC (CTOT values preserved)
+    const now = new Date();
+    simTimeSeconds = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+
+    // UI만 업데이트 (데이터 리로드 안 함 - CTOT 유지)
+    updateSimulationUI();
+    updateFlightMap();
+    renderFlightQueue();
+    renderTimelineFlights();
+
+    console.log("Simulation Reset Complete (CTOT preserved).");
+}
+
 function togglePlay() {
-    if (simInterval) { clearInterval(simInterval); simInterval = null; els.playBtn.textContent = '▶'; }
-    else {
+    if (simInterval) {
+        clearInterval(simInterval);
+        simInterval = null;
+        els.playBtn.textContent = '▶';
+    } else {
+        // 기준 항공기(⭐)가 있으면 그 시간부터 시작, 없으면 선택된 항공기 시간
+        const targetFlightId = referenceFlightId || lastSelectedFlightId;
+        if (targetFlightId) {
+            const flight = allFlights.find(f => f.id === targetFlightId);
+            if (flight) {
+                const startTimeStr = flight.atd || flight.ctot;
+                if (startTimeStr) {
+                    const startTimeSec = timeToSec(startTimeStr);
+                    simTimeSeconds = Math.max(0, startTimeSec - 120); // 2 minutes before departure
+                    updateSimulationUI();
+                    updateFlightMap();
+                }
+            }
+        }
+
         simInterval = setInterval(() => {
             simTimeSeconds += simSpeed;
             updateSimulationUI();
@@ -636,10 +1791,43 @@ function togglePlay() {
     }
 }
 
+let lastScrollUpdate = 0; // Throttle scroll updates
+
 function updateSimulationUI() {
-    if (els.simClock) els.simClock.textContent = secToTime(Math.floor(simTimeSeconds));
-    const markerPos = (simTimeSeconds - 12 * 3600) * (1350 / 3600);
-    if (els.timeMarker) els.timeMarker.style.left = `${markerPos}px`;
+    const timeStr = secToTime(Math.floor(simTimeSeconds));
+    if (els.simClock) els.simClock.textContent = timeStr;
+    if (els.mapSimClock) els.mapSimClock.textContent = timeStr;
+
+    const windowStartSec = timelineStartHour * 3600;
+    const windowEndSec = timelineEndHour * 3600;
+    const PX_PER_SEC = 1350 / 3600;
+
+    // Only update marker if within timeline range
+    const markerPos = (simTimeSeconds - windowStartSec) * PX_PER_SEC;
+
+    if (els.timeMarker) {
+        if (simTimeSeconds >= windowStartSec && simTimeSeconds <= windowEndSec) {
+            els.timeMarker.style.left = `${markerPos}px`;
+            els.timeMarker.style.display = 'block';
+        } else {
+            els.timeMarker.style.display = 'none';
+        }
+    }
+
+    // Throttle scroll updates to every 500ms to avoid jitter
+    const now = Date.now();
+    if (now - lastScrollUpdate > 500) {
+        lastScrollUpdate = now;
+
+        const timelineScrollArea = document.querySelector('.timeline-scroll-area');
+        if (timelineScrollArea && simTimeSeconds >= windowStartSec && simTimeSeconds <= windowEndSec) {
+            const scrollLeft = Math.max(0, markerPos - (timelineScrollArea.clientWidth / 2));
+            timelineScrollArea.scrollTo({
+                left: scrollLeft,
+                behavior: 'smooth'
+            });
+        }
+    }
 }
 
 function jumpTime(sec) {
@@ -649,15 +1837,21 @@ function jumpTime(sec) {
 }
 
 function selectFlight(id) {
+    lastSelectedFlightId = id;
     document.querySelectorAll('.active-flight').forEach(e => e.classList.remove('active-flight'));
     const qItem = Array.from(els.flightQueue?.children || []).find(el => el.dataset.id === id);
     if (qItem) qItem.classList.add('active-flight');
+
     document.querySelectorAll('.flight-block.selected').forEach(e => e.classList.remove('selected'));
     const tBlock = document.querySelector(`.flight-block[data-id="${id}"]`);
-    if (tBlock) { tBlock.classList.add('selected'); tBlock.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); }
+    if (tBlock) {
+        tBlock.classList.add('selected');
+        tBlock.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
 }
 
 function renderSettings() {
+    console.log('Rendering settings...');
     const entryContainer = document.getElementById('entry-segments-config');
     if (entryContainer) {
         entryContainer.innerHTML = '';
@@ -669,50 +1863,154 @@ function renderSettings() {
         });
     }
 
+    // Airport Configuration
+    const airportContainer = document.getElementById('airport-config');
+    if (airportContainer) {
+        airportContainer.innerHTML = '';
+        Object.keys(airportDatabase).forEach(code => {
+            const airport = airportDatabase[code];
+            const div = document.createElement('div');
+            div.className = 'airport-config-item';
+            div.style.cssText = 'display:grid; grid-template-columns: 1fr 1fr 1fr 0.5fr; gap:0.5rem; margin-bottom:0.5rem; align-items:center;';
+            div.innerHTML = `
+                <span style="font-weight:600; color:${airport.color}">${code} (${airport.name})</span>
+                <input type="number" id="taxi-${code}" value="${airport.taxiTime}" min="5" max="60" style="padding:4px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:white; border-radius:4px;">
+                <input type="number" id="dep-${code}" value="${airport.depInterval}" min="1" max="30" style="padding:4px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:white; border-radius:4px;">
+                <input type="color" id="color-${code}" value="${airport.color}" style="width:40px; height:28px; border:none; cursor:pointer; border-radius:4px;">
+            `;
+            airportContainer.appendChild(div);
+        });
+    }
+
     const wpList = document.getElementById('waypoints-config-list');
     if (wpList) {
         wpList.innerHTML = '';
-        waypoints.forEach((wp, idx) => {
-            const div = document.createElement('div');
-            div.className = 'waypoint-list-item';
-            div.innerHTML = `
-                <input type="text" value="${wp.from}" data-idx="${idx}" data-field="from">
-                <input type="text" value="${wp.to}" data-idx="${idx}" data-field="to">
-                <input type="number" value="${wp.duration}" data-idx="${idx}" data-field="duration">
-                <button class="btn-icon delete-wp" data-idx="${idx}">🗑</button>
-            `;
-            wpList.appendChild(div);
-        });
+        if (Array.isArray(waypoints)) {
+            waypoints.forEach((wp, idx) => {
+                const div = document.createElement('div');
+                div.className = 'waypoint-list-item';
+                div.innerHTML = `
+                    <input type="text" value="${wp.from}" data-idx="${idx}" data-field="from">
+                    <input type="text" value="${wp.to}" data-idx="${idx}" data-field="to">
+                    <input type="number" value="${wp.duration}" data-idx="${idx}" data-field="duration">
+                    <button class="btn-icon delete-wp" data-idx="${idx}">🗑</button>
+                `;
+                wpList.appendChild(div);
+            });
+        }
         document.querySelectorAll('.delete-wp').forEach(btn => btn.addEventListener('click', (e) => {
-            waypoints.splice(parseInt(e.target.dataset.idx), 1);
-            renderSettings();
+            const idx = parseInt(e.currentTarget.dataset.idx);
+            if (!isNaN(idx)) {
+                waypoints.splice(idx, 1);
+                renderSettings();
+            }
         }));
     }
+    console.log('Settings rendered successfully');
 }
 
 function addWaypointInput() { waypoints.push({ from: '', to: '', duration: 10 }); renderSettings(); }
 
+// CSS 변수 동적 업데이트 (Legend용)
+function updateCssVariables() {
+    const root = document.documentElement;
+    root.style.setProperty('--gmp-color', airportDatabase['RKSS'].color);
+    root.style.setProperty('--cjj-color', airportDatabase['RKTU'].color);
+    root.style.setProperty('--kuv-color', airportDatabase['RKJK'].color);
+    root.style.setProperty('--kwj-color', airportDatabase['RKJJ'].color);
+}
+
 function saveSettings() {
-    Object.keys(segmentConfig).forEach(key => segmentConfig[key] = parseInt(document.getElementById(`cfg-${key}`).value));
+    // Save entry segment configs
+    Object.keys(segmentConfig).forEach(key => {
+        const input = document.getElementById(`cfg-${key}`);
+        if (input) segmentConfig[key] = parseInt(input.value) || segmentConfig[key];
+    });
+
+    // Save airport configurations
+    Object.keys(airportDatabase).forEach(code => {
+        const taxiInput = document.getElementById(`taxi-${code}`);
+        const depInput = document.getElementById(`dep-${code}`);
+        const colorInput = document.getElementById(`color-${code}`);
+
+        if (taxiInput) {
+            airportDatabase[code].taxiTime = parseInt(taxiInput.value) || airportDatabase[code].taxiTime;
+        }
+        if (depInput) {
+            airportDatabase[code].depInterval = parseInt(depInput.value) || airportDatabase[code].depInterval;
+        }
+        if (colorInput) {
+            airportDatabase[code].color = colorInput.value;
+        }
+    });
+
+    // Update CSS variables for Legend
+    updateCssVariables();
+
+    // Save waypoints
     const newWaypoints = [];
     document.querySelectorAll('.waypoint-list-item').forEach(item => {
         const inputs = item.querySelectorAll('input');
-        newWaypoints.push({ from: inputs[0].value, to: inputs[1].value, duration: parseInt(inputs[2].value) });
+        if (inputs.length >= 3) {
+            newWaypoints.push({
+                from: inputs[0].value,
+                to: inputs[1].value,
+                duration: parseInt(inputs[2].value) || 10
+            });
+        }
     });
     waypoints = newWaypoints;
-    alert('Settings Saved!');
+
+    alert('Settings Saved!\nAirport configurations and waypoints updated.');
     els.settingsModal?.classList.add('hidden');
+
+    // Recalculate CTOTs with new settings
     updateCTOTs(0);
+
+    // Refresh UI with new colors
+    renderFlightQueue();
+    renderTimelineFlights();
+    initFlightMap();
+
+    console.log('Settings saved:', { segmentConfig, airportDatabase, waypoints });
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-    updateWaypointDurations(); // Calculate initial ratios based on GPS coordinates
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('App starting (sync phase)...');
     cacheOMElements();
     setupEventListeners();
-    await loadScheduleData();
-    renderFlightQueue();
-    updateCTOTs(0);
-    initTimeline();
-    initFlightMap();
-    updateSimulationUI();
+
+    // Expose for debugging
+    window.fmsDebug = {
+        getFlights: () => allFlights,
+        getEls: () => els,
+        getDB: () => db,
+        render: () => renderFlightQueue(),
+        isReady: false
+    };
+
+    // Run async initialization separately
+    (async () => {
+        console.log('App starting (async phase)...');
+        updateWaypointDurations();
+
+        try {
+            console.log('Initializing database...');
+            await initDatabase();
+            console.log('Loading schedule data...');
+            await loadScheduleData();
+
+            console.log('Final UI rendering...');
+            renderFlightQueue();
+            updateCTOTs(0);
+            initTimeline();
+            initFlightMap();
+            updateSimulationUI();
+
+            window.fmsDebug.isReady = true;
+            console.log('App initialization complete. Flights:', allFlights.length);
+        } catch (err) {
+            console.error('CRITICAL INIT ERROR:', err);
+        }
+    })();
 });
