@@ -4,13 +4,17 @@
 const express = require('express');
 const oracledb = require('oracledb');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the Vite build directory
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // Oracle DB 연결 설정
 const dbConfig = {
@@ -28,19 +32,19 @@ const dbConfig = {
  */
 app.get('/api/flights', async (req, res) => {
     let connection;
-    
+
     try {
         const { airports, date } = req.query;
-        
+
         if (!airports) {
             return res.status(400).json({ error: '공항 코드가 필요합니다.' });
         }
-        
+
         const airportList = airports.split(',');
         const placeholders = airportList.map((_, i) => `:${i + 1}`).join(',');
-        
+
         connection = await oracledb.getConnection(dbConfig);
-        
+
         // 실제 테이블 구조에 맞게 쿼리 수정 필요
         const query = `
             SELECT 
@@ -55,13 +59,13 @@ app.get('/api/flights', async (req, res) => {
               AND TRUNC(EOBT) = TO_DATE(:dateParam, 'YYYY-MM-DD')
             ORDER BY DEPARTURE_AIRPORT, EOBT
         `;
-        
+
         const binds = [...airportList, date || '2026-01-16'];
-        
+
         const result = await connection.execute(query, binds, {
             outFormat: oracledb.OUT_FORMAT_OBJECT
         });
-        
+
         // 결과 가공
         const flights = result.rows.map(row => ({
             id: row.CALLSIGN,
@@ -73,18 +77,18 @@ app.get('/api/flights', async (req, res) => {
             altitude: parseInt(row.FLIGHT_LEVEL.replace('FL', '')),
             flightLevel: row.FLIGHT_LEVEL
         }));
-        
+
         res.json({
             success: true,
             count: flights.length,
             flights: flights
         });
-        
+
     } catch (error) {
         console.error('DB 조회 오류:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'DB 조회 실패',
-            message: error.message 
+            message: error.message
         });
     } finally {
         if (connection) {
@@ -103,16 +107,16 @@ app.get('/api/flights', async (req, res) => {
  */
 app.post('/api/ctot', async (req, res) => {
     let connection;
-    
+
     try {
         const { flights } = req.body;
-        
+
         if (!flights || !Array.isArray(flights)) {
             return res.status(400).json({ error: '항공편 데이터가 필요합니다.' });
         }
-        
+
         connection = await oracledb.getConnection(dbConfig);
-        
+
         // 트랜잭션 시작
         for (const flight of flights) {
             const query = `
@@ -132,7 +136,7 @@ app.post('/api/ctot', async (req, res) => {
                     SYSTIMESTAMP
                 )
             `;
-            
+
             await connection.execute(query, {
                 callsign: flight.id,
                 airport: flight.airport,
@@ -141,22 +145,22 @@ app.post('/api/ctot', async (req, res) => {
                 status: flight.status
             });
         }
-        
+
         await connection.commit();
-        
+
         res.json({
             success: true,
             message: `${flights.length}개 항공편 CTOT 저장 완료`
         });
-        
+
     } catch (error) {
         console.error('CTOT 저장 오류:', error);
         if (connection) {
             await connection.rollback();
         }
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'CTOT 저장 실패',
-            message: error.message 
+            message: error.message
         });
     } finally {
         if (connection) {
@@ -175,28 +179,28 @@ app.post('/api/ctot', async (req, res) => {
  */
 app.get('/api/db/test', async (req, res) => {
     let connection;
-    
+
     try {
         connection = await oracledb.getConnection(dbConfig);
-        
+
         const result = await connection.execute(
             'SELECT SYSDATE FROM DUAL',
             [],
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
-        
+
         res.json({
             success: true,
             message: 'DB 연결 성공',
             serverTime: result.rows[0].SYSDATE
         });
-        
+
     } catch (error) {
         console.error('DB 연결 오류:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
             error: 'DB 연결 실패',
-            message: error.message 
+            message: error.message
         });
     } finally {
         if (connection) {
@@ -215,10 +219,10 @@ app.get('/api/db/test', async (req, res) => {
  */
 app.get('/api/airports', async (req, res) => {
     let connection;
-    
+
     try {
         connection = await oracledb.getConnection(dbConfig);
-        
+
         const query = `
             SELECT 
                 AIRPORT_CODE,
@@ -229,28 +233,28 @@ app.get('/api/airports', async (req, res) => {
             WHERE IS_ACTIVE = 'Y'
             ORDER BY AIRPORT_CODE
         `;
-        
+
         const result = await connection.execute(query, [], {
             outFormat: oracledb.OUT_FORMAT_OBJECT
         });
-        
+
         const airports = result.rows.map(row => ({
             code: row.AIRPORT_CODE,
             name: row.AIRPORT_NAME,
             mergePoint: row.MERGE_POINT,
             duration: row.DURATION_MINUTES
         }));
-        
+
         res.json({
             success: true,
             airports: airports
         });
-        
+
     } catch (error) {
         console.error('공항 정보 조회 오류:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: '공항 정보 조회 실패',
-            message: error.message 
+            message: error.message
         });
     } finally {
         if (connection) {
@@ -261,6 +265,11 @@ app.get('/api/airports', async (req, res) => {
             }
         }
     }
+});
+
+// SPA routing: catch-all and send index.html
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // 서버 시작
