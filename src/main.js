@@ -614,7 +614,8 @@ function updateCTOTs(startIndex = 0) {
             continue;
         }
 
-        if (flight.isManualCtot && flight.ctot) {
+        const isManual = flight.isManualCtot && flight.ctot;
+        if (isManual) {
             tentativeCtot = timeToSec(flight.ctot);
             // 자정 넘김 처리: 수동 CTOT가 EOBT보다 작으면 다음 날로 간주
             if (tentativeCtot < eobtSec - 3600) { // 1시간 이상 차이나면 다음 날
@@ -638,29 +639,56 @@ function updateCTOTs(startIndex = 0) {
 
         // Priority 3: Conflict detection (altitude-independent)
         // Check all waypoints against all flights above in the list
-        let conflictFound = true;
-        let safetyLoop = 0;
-        while (conflictFound && safetyLoop < 30) {
-            conflictFound = false;
-            const myWaypoints = calculateFlightWaypoints(flight, tentativeCtot);
+        // 수동 CTOT는 조정하지 않고 웨이포인트만 계산
+        let myWaypoints = calculateFlightWaypoints(flight, tentativeCtot);
 
-            for (let j = 0; j < i; j++) {
-                const otherFlight = allFlights.find(f => f.id === visibleItems[j].dataset.id);
-                if (!otherFlight || !otherFlight.routeWaypoints) continue;
+        if (!isManual) {
+            // 자동 CTOT만 충돌 감지 후 조정
+            let conflictFound = true;
+            let safetyLoop = 0;
+            while (conflictFound && safetyLoop < 30) {
+                conflictFound = false;
 
-                for (const myWp of myWaypoints) {
-                    const otherWp = otherFlight.routeWaypoints.find(wp => wp.name === myWp.name);
-                    if (otherWp && Math.abs(myWp.time - otherWp.time) < separationInterval) {
-                        // Priority: LIST ORDER. If I am below in the list, I must wait.
-                        const requiredWpTime = otherWp.time + separationInterval;
-                        tentativeCtot += (requiredWpTime - myWp.time);
-                        conflictFound = true;
-                        break;
+                for (let j = 0; j < i; j++) {
+                    const otherFlight = allFlights.find(f => f.id === visibleItems[j].dataset.id);
+                    if (!otherFlight || !otherFlight.routeWaypoints || otherFlight.routeWaypoints.length === 0) continue;
+
+                    for (const myWp of myWaypoints) {
+                        const otherWp = otherFlight.routeWaypoints.find(wp => wp.name === myWp.name);
+                        if (!otherWp) continue;
+
+                        // 자정 넘김 보정: 두 시간의 실제 차이 계산
+                        let myTime = myWp.time;
+                        let otherTime = otherWp.time;
+
+                        // 시간 차이가 12시간(43200초) 이상이면 자정 넘김으로 간주
+                        let timeDiff = Math.abs(myTime - otherTime);
+                        if (timeDiff > 43200) {
+                            // 더 작은 시간에 86400을 더해서 비교
+                            if (myTime < otherTime) {
+                                myTime += 86400;
+                            } else {
+                                otherTime += 86400;
+                            }
+                            timeDiff = Math.abs(myTime - otherTime);
+                        }
+
+                        if (timeDiff < separationInterval) {
+                            // Priority: LIST ORDER. If I am below in the list, I must wait.
+                            const requiredWpTime = otherTime + separationInterval;
+                            const adjustment = requiredWpTime - myTime;
+                            if (adjustment > 0) {
+                                tentativeCtot += adjustment;
+                                myWaypoints = calculateFlightWaypoints(flight, tentativeCtot); // CTOT 변경 시 재계산
+                                conflictFound = true;
+                                break;
+                            }
+                        }
                     }
+                    if (conflictFound) break;
                 }
-                if (conflictFound) break;
+                safetyLoop++;
             }
-            safetyLoop++;
         }
 
         // 모두 UTC 기준이므로 변환 없음
@@ -678,13 +706,14 @@ function updateCTOTs(startIndex = 0) {
             flight.isNextDay = false;
         }
 
-        flight.routeWaypoints = calculateFlightWaypoints(flight, tentativeCtot);
+        flight.routeWaypoints = myWaypoints; // 이미 계산된 웨이포인트 사용 (중복 계산 제거)
 
         // Debug log for troubleshooting
         if (isNaN(tentativeCtot) || tentativeCtot < 0) {
             console.error('Invalid tentativeCtot for flight:', flight.callsign, tentativeCtot);
             tentativeCtot = eobtSec; // Fallback to EOBT
             flight.ctot = flight.eobt;
+            flight.routeWaypoints = calculateFlightWaypoints(flight, tentativeCtot); // 폴백 시 재계산
         }
 
         airportGroups[airport].push(flight);
@@ -886,35 +915,72 @@ function renderFlightQueue() {
                 flight.ctotUtc = e.target.value;
                 flight.isManualCtot = true; // Mark as manually adjusted
 
-                // 수동 CTOT 설정 전 충돌 검사
+                // 수동 CTOT 설정 전 검증
                 let ctotSec = timeToSec(flight.ctot);
                 const eobtSec = timeToSec(flight.eobt);
                 // 자정 넘김 처리: CTOT가 EOBT보다 작으면 다음 날
-                if (ctotSec < eobtSec - 3600) {
+                const isNextDay = ctotSec < eobtSec - 3600;
+                if (isNextDay) {
                     ctotSec += 86400;
                 }
-                const tempWaypoints = calculateFlightWaypoints(flight, ctotSec);
-                let hasConflict = false;
-                let conflictInfo = '';
+
+                let warnings = [];
+
+                // 검증 1: 같은 공항 이륙 간격 검사
+                const airport = flight.airport;
+                const aptInfo = airportDatabase[airport];
+                const depInterval = (aptInfo?.depInterval || 10) * 60;
 
                 for (const otherFlight of allFlights) {
-                    if (otherFlight.id === flight.id || !otherFlight.routeWaypoints) continue;
+                    if (otherFlight.id === flight.id || otherFlight.airport !== airport) continue;
+                    if (!otherFlight.ctot) continue;
+
+                    let otherCtotSec = timeToSec(otherFlight.ctot);
+                    if (otherFlight.isNextDay) otherCtotSec += 86400;
+
+                    // 시간 차이 계산 (자정 넘김 고려)
+                    let timeDiff = Math.abs(ctotSec - otherCtotSec);
+                    if (timeDiff > 43200) {
+                        timeDiff = 86400 - timeDiff;
+                    }
+
+                    if (timeDiff < depInterval && timeDiff > 0) {
+                        warnings.push(`이륙간격: ${otherFlight.callsign}과 ${Math.round(timeDiff/60)}분 (기준: ${depInterval/60}분)`);
+                    }
+                }
+
+                // 검증 2: 웨이포인트 충돌 검사
+                const tempWaypoints = calculateFlightWaypoints(flight, ctotSec);
+
+                for (const otherFlight of allFlights) {
+                    if (otherFlight.id === flight.id || !otherFlight.routeWaypoints || otherFlight.routeWaypoints.length === 0) continue;
+
                     for (const myWp of tempWaypoints) {
                         const otherWp = otherFlight.routeWaypoints.find(wp => wp.name === myWp.name);
-                        if (otherWp && Math.abs(myWp.time - otherWp.time) < separationInterval) {
-                            hasConflict = true;
-                            const timeDiff = Math.round(Math.abs(myWp.time - otherWp.time) / 60);
-                            conflictInfo = `${myWp.name}에서 ${otherFlight.callsign}과 ${timeDiff}분 분리 (기준: ${separationInterval / 60}분)`;
+                        if (!otherWp) continue;
+
+                        // 자정 넘김 보정
+                        let myTime = myWp.time;
+                        let otherTime = otherWp.time;
+                        let timeDiff = Math.abs(myTime - otherTime);
+
+                        if (timeDiff > 43200) {
+                            if (myTime < otherTime) myTime += 86400;
+                            else otherTime += 86400;
+                            timeDiff = Math.abs(myTime - otherTime);
+                        }
+
+                        if (timeDiff < separationInterval) {
+                            warnings.push(`${myWp.name}: ${otherFlight.callsign}과 ${Math.round(timeDiff/60)}분 분리 (기준: ${separationInterval/60}분)`);
                             break;
                         }
                     }
-                    if (hasConflict) break;
                 }
 
-                if (hasConflict) {
-                    console.warn(`⚠️ 수동 CTOT 충돌 경고: ${flight.callsign} - ${conflictInfo}`);
+                if (warnings.length > 0) {
+                    console.warn(`⚠️ 수동 CTOT 경고: ${flight.callsign}`, warnings);
                     e.target.style.backgroundColor = 'rgba(255, 68, 68, 0.3)';
-                    e.target.title = `충돌 경고: ${conflictInfo}`;
+                    e.target.title = `경고:\n${warnings.join('\n')}`;
                 } else {
                     e.target.style.backgroundColor = '';
                     e.target.title = '';
