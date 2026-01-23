@@ -1009,8 +1009,10 @@ function updateFlightMap() {
     const simTimeInDay = simTimeSeconds % 86400;
 
     allFlights.forEach(flight => {
+        // CTOT가 없거나 빈 문자열이면 표시 안 함 (기준 항공기 이전 항공기들)
+        if (!flight.ctot && !flight.atd) return;
+
         const ctotSec = flight.atd ? timeToSec(flight.atd) : timeToSec(flight.ctot);
-        if (!ctotSec && ctotSec !== 0) return; // CTOT가 없으면 표시 안 함
 
         const taxiTime = (airportDatabase[flight.airport]?.taxiTime || 15) * 60;
         const taxiStartSec = ctotSec - taxiTime; // 택시 시작 = CTOT - 택시시간
