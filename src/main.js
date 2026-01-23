@@ -991,6 +991,9 @@ function updateFlightMap() {
     if (!aircraftLayer) return;
     aircraftLayer.innerHTML = '';
 
+    // 24시간 순환 처리된 시뮬레이션 시간
+    const simTimeInDay = simTimeSeconds % 86400;
+
     allFlights.forEach(flight => {
         const ctotSec = flight.atd ? timeToSec(flight.atd) : timeToSec(flight.ctot);
         if (!ctotSec && ctotSec !== 0) return; // CTOT가 없으면 표시 안 함
@@ -998,13 +1001,13 @@ function updateFlightMap() {
         const taxiTime = (airportDatabase[flight.airport]?.taxiTime || 15) * 60;
         const taxiStartSec = ctotSec - taxiTime; // 택시 시작 = CTOT - 택시시간
 
-        if (simTimeSeconds < taxiStartSec) return; // 택시 시작 전에는 표시 안 함
+        if (simTimeInDay < taxiStartSec) return; // 택시 시작 전에는 표시 안 함
 
         const totalDurationSec = flight.duration * 60;
         const arrivalSec = ctotSec + totalDurationSec; // 도착 = CTOT(이륙) + 비행시간
-        if (simTimeSeconds > arrivalSec) return;
+        if (simTimeInDay > arrivalSec) return;
 
-        const elapsedMin = (simTimeSeconds - taxiStartSec) / 60;
+        const elapsedMin = (simTimeInDay - taxiStartSec) / 60;
         const isFullscreen = els.mapSection?.classList.contains('fullscreen');
         const pos = calculatePosition(flight, elapsedMin, isFullscreen);
         drawAircraft(aircraftLayer, flight, pos);
@@ -1012,10 +1015,10 @@ function updateFlightMap() {
     });
 
     // --- Separation Analysis ---
-    drawSeparationAnalysis(aircraftLayer);
+    drawSeparationAnalysis(aircraftLayer, simTimeInDay);
 }
 
-function drawSeparationAnalysis(layer) {
+function drawSeparationAnalysis(layer, simTimeInDay) {
     // 이전 충돌 기록 초기화
     const newConflictingIds = new Set();
 
@@ -1026,7 +1029,7 @@ function drawSeparationAnalysis(layer) {
             const taxiTime = (airportDatabase[f.airport]?.taxiTime || 15) * 60;
             const taxiStartSec = ctotSec - taxiTime;
             const arrivalSec = ctotSec + f.duration * 60;
-            return simTimeSeconds >= taxiStartSec && simTimeSeconds <= arrivalSec && f.currentPos;
+            return simTimeInDay >= taxiStartSec && simTimeInDay <= arrivalSec && f.currentPos;
         })
         .sort((a, b) => b.currentPos.x - a.currentPos.x);
 
