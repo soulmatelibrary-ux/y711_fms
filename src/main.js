@@ -616,6 +616,10 @@ function updateCTOTs(startIndex = 0) {
 
         if (flight.isManualCtot && flight.ctot) {
             tentativeCtot = timeToSec(flight.ctot);
+            // 자정 넘김 처리: 수동 CTOT가 EOBT보다 작으면 다음 날로 간주
+            if (tentativeCtot < eobtSec - 3600) { // 1시간 이상 차이나면 다음 날
+                tentativeCtot += 86400;
+            }
         } else {
             // Priority 1: Must be at or after EOBT
             tentativeCtot = eobtSec;
@@ -623,7 +627,11 @@ function updateCTOTs(startIndex = 0) {
             // Priority 2: Maintain airport-specific departure interval
             const prevFromSameAirport = airportGroups[airport][airportGroups[airport].length - 1];
             if (prevFromSameAirport) {
-                const prevCtot = timeToSec(prevFromSameAirport.ctot);
+                let prevCtot = timeToSec(prevFromSameAirport.ctot);
+                // 이전 항공기가 다음 날이면 86400 추가
+                if (prevFromSameAirport.isNextDay) {
+                    prevCtot += 86400;
+                }
                 tentativeCtot = Math.max(tentativeCtot, prevCtot + depInterval);
             }
         }
@@ -879,7 +887,13 @@ function renderFlightQueue() {
                 flight.isManualCtot = true; // Mark as manually adjusted
 
                 // 수동 CTOT 설정 전 충돌 검사
-                const tempWaypoints = calculateFlightWaypoints(flight, timeToSec(flight.ctot));
+                let ctotSec = timeToSec(flight.ctot);
+                const eobtSec = timeToSec(flight.eobt);
+                // 자정 넘김 처리: CTOT가 EOBT보다 작으면 다음 날
+                if (ctotSec < eobtSec - 3600) {
+                    ctotSec += 86400;
+                }
+                const tempWaypoints = calculateFlightWaypoints(flight, ctotSec);
                 let hasConflict = false;
                 let conflictInfo = '';
 
@@ -1039,8 +1053,11 @@ function drawSeparationAnalysis(layer, simTimeInDay) {
 
         const distPx = lead.currentPos.x - follow.currentPos.x;
         if (distPx > 15 && distPx < 600) {
-            const leadStartTime = lead.atd ? timeToSec(lead.atd) : timeToSec(lead.ctot);
-            const followStartTime = follow.atd ? timeToSec(follow.atd) : timeToSec(follow.ctot);
+            let leadStartTime = lead.atd ? timeToSec(lead.atd) : timeToSec(lead.ctot);
+            let followStartTime = follow.atd ? timeToSec(follow.atd) : timeToSec(follow.ctot);
+            // 자정 넘김 처리
+            if (lead.isNextDay) leadStartTime += 86400;
+            if (follow.isNextDay) followStartTime += 86400;
             const timeDiffSec = Math.abs(followStartTime - leadStartTime);
             const timeDiffMin = timeDiffSec / 60;
 
