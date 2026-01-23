@@ -320,6 +320,103 @@
                     </div>
                 </section>
 
+                <!-- CTOT +1 설명 -->
+                <section style="margin-bottom: 2rem;">
+                    <h4
+                        style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                        CTOT "+1" 표시 의미</h4>
+                    <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; margin-bottom: 1rem;">
+                        <p style="margin-bottom: 0.8rem;">CTOT 옆의 <strong style="color: #ffcc00;">+1</strong>은 <strong>다음 날(+1일)</strong>을 의미합니다.</p>
+                        <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; font-family: monospace;">
+                            <p style="margin-bottom: 0.5rem;"><strong>예시:</strong></p>
+                            <p style="color: var(--text-secondary);">EOBT: <span style="color: #58a6ff;">2340</span> (23:40)</p>
+                            <p style="color: var(--text-secondary);">CTOT: <span style="color: #ffcc00;">0004+1</span> → 다음 날 00:04</p>
+                        </div>
+                        <p style="margin-top: 0.8rem; color: var(--text-secondary);">
+                            자정(00:00)을 넘긴 CTOT는 다음 날로 표시되어, 운항일 혼동을 방지합니다.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- 웨이포인트 통과 로직 예제 -->
+                <section style="margin-bottom: 2rem;">
+                    <h4
+                        style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                        웨이포인트 통과 시간 계산 예제</h4>
+
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        각 공항에서 이륙 후 합류 지점까지의 시간과 이후 웨이포인트 통과 시간이 계산됩니다.
+                    </p>
+
+                    <!-- 예제 1: 김포 -->
+                    <div style="background: rgba(88, 166, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #58a6ff;">
+                        <strong style="color: #58a6ff;">예제 1: 김포(RKSS) 출발 항공기</strong>
+                        <div style="margin-top: 0.8rem; font-family: monospace; font-size: 0.9rem;">
+                            <p>CTOT: <span style="color: #58a6ff;">0600</span> (06:00 이륙)</p>
+                            <p style="margin-top: 0.5rem;">웨이포인트 통과 시간:</p>
+                            <table style="width: 100%; margin-top: 0.5rem; border-collapse: collapse;">
+                                <tr style="color: var(--text-secondary);">
+                                    <td style="padding: 4px 8px;">BULTI (합류)</td>
+                                    <td style="padding: 4px 8px;">= 0600 + 8분</td>
+                                    <td style="padding: 4px 8px; color: #58a6ff;">= 0608</td>
+                                </tr>
+                                <tr style="color: var(--text-secondary);">
+                                    <td style="padding: 4px 8px;">MEKIL</td>
+                                    <td style="padding: 4px 8px;">= 0608 + 2분</td>
+                                    <td style="padding: 4px 8px; color: #58a6ff;">= 0610</td>
+                                </tr>
+                                <tr style="color: var(--text-secondary);">
+                                    <td style="padding: 4px 8px;">GONAX</td>
+                                    <td style="padding: 4px 8px;">= 0610 + 2분</td>
+                                    <td style="padding: 4px 8px; color: #58a6ff;">= 0612</td>
+                                </tr>
+                                <tr style="color: var(--text-secondary);">
+                                    <td style="padding: 4px 8px;">...</td>
+                                    <td style="padding: 4px 8px;"></td>
+                                    <td style="padding: 4px 8px;"></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 예제 2: 청주 -->
+                    <div style="background: rgba(188, 140, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #bc8cff;">
+                        <strong style="color: #bc8cff;">예제 2: 청주(RKTU) 출발 항공기</strong>
+                        <div style="margin-top: 0.8rem; font-family: monospace; font-size: 0.9rem;">
+                            <p>CTOT: <span style="color: #bc8cff;">0603</span> (06:03 이륙)</p>
+                            <p style="margin-top: 0.5rem;">웨이포인트 통과 시간:</p>
+                            <table style="width: 100%; margin-top: 0.5rem; border-collapse: collapse;">
+                                <tr style="color: var(--text-secondary);">
+                                    <td style="padding: 4px 8px;">MEKIL (합류)</td>
+                                    <td style="padding: 4px 8px;">= 0603 + 7분</td>
+                                    <td style="padding: 4px 8px; color: #bc8cff;">= 0610</td>
+                                </tr>
+                                <tr style="color: var(--text-secondary);">
+                                    <td style="padding: 4px 8px;">GONAX</td>
+                                    <td style="padding: 4px 8px;">= 0610 + 2분</td>
+                                    <td style="padding: 4px 8px; color: #bc8cff;">= 0612</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 충돌 감지 예제 -->
+                    <div style="background: rgba(255, 68, 68, 0.1); padding: 15px; border-radius: 8px; border-left: 3px solid #ff4444;">
+                        <strong style="color: #ff4444;">충돌 감지 및 CTOT 조정 예제</strong>
+                        <div style="margin-top: 0.8rem; font-size: 0.9rem;">
+                            <p style="color: var(--text-secondary); margin-bottom: 0.8rem;">
+                                위 예제에서 김포 항공기와 청주 항공기가 <strong>MEKIL에서 동시 도착</strong> (둘 다 0610)
+                            </p>
+                            <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px;">
+                                <p style="color: #ff4444; margin-bottom: 0.5rem;">문제: MEKIL 분리 = 0분 (3분 미만)</p>
+                                <p style="color: #4ade80;">해결: 청주 항공기 CTOT를 3분 지연</p>
+                                <p style="margin-top: 0.5rem;">새 CTOT: <span style="color: #bc8cff;">0603</span> → <span style="color: #ffcc00;">0606</span></p>
+                                <p style="color: var(--text-secondary);">→ MEKIL 도착: 0606 + 7분 = <span style="color: #4ade80;">0613</span> (김포와 3분 분리 확보)</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- 화면 구성 -->
                 <section style="margin-bottom: 2rem;">
                     <h4
