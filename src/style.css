@@ -452,6 +452,24 @@ body {
     font-size: 0.85rem;
 }
 
+.queue-item.reference-cutoff {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 0.35rem;
+    grid-template-columns: 1fr;
+    padding: 0.75rem 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-secondary);
+    text-align: center;
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+    font-size: 0.8rem;
+}
+
 .queue-item .col-ctot.ctot-input {
     width: 100%;
     border: 1px solid transparent;

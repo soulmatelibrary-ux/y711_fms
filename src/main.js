@@ -870,7 +870,16 @@ function renderFlightQueue() {
     // 기준 항공기 인덱스 찾기
     const refIndex = referenceFlightId ? allFlights.findIndex(f => f.id === referenceFlightId) : -1;
 
+    // 기준 이전 항공편 안내 - 사용자에게 현재 목록이 잘린 상태임을 알림
+    if (refIndex > 0) {
+        const referenceNotice = document.createElement('div');
+        referenceNotice.className = 'queue-item placeholder reference-cutoff';
+        referenceNotice.textContent = `기준 이전 항공편 ${refIndex}편은 숨김 상태입니다 (⭐ 해제 시 전체 표시)`;
+        els.flightQueue.appendChild(referenceNotice);
+    }
+
     allFlights.forEach((flight, index) => {
+        if (refIndex >= 0 && index < refIndex) return; // 기준 이전 항공편은 리스트에서 제외
         const isCurrentTime = index === currentIndex;
         const isReference = flight.id === referenceFlightId;
         const isAfterReference = refIndex >= 0 && index > refIndex;
@@ -910,7 +919,7 @@ function renderFlightQueue() {
                 <input type="text" class="col-atd atd-input" placeholder="-" value="${flight.atd || ''}">
                 ${isCurrentTime ? '<span class="current-time-indicator">📍</span>' : ''}
             </div>
-            <input type="text" class="${ctotClasses.join(' ')}" value="${flight.ctotUtc || flight.ctot}${flight.isNextDay ? '+1' : ''}" ${flight.atd ? 'disabled' : ''}>
+            <input type="text" class="${ctotClasses.join(' ')}" value="${flight.ctotUtc || flight.ctot}" ${flight.atd ? 'disabled' : ''}>
         `;
 
         // 기준 항공기 선택 버튼 이벤트
@@ -921,10 +930,18 @@ function renderFlightQueue() {
                 referenceFlightId = null; // 해제
             } else {
                 referenceFlightId = flight.id; // 설정
-                flight.isManualCtot = true; // 기준 항공기는 수동 모드
+                const baseTime = flight.eobtUtc || flight.eobt;
+                if (baseTime) {
+                    flight.ctot = baseTime;
+                    flight.ctotUtc = baseTime;
+                    flight.ctotAbsolute = timeToSec(baseTime);
+                    flight.isNextDay = false;
+                }
+                flight.isManualCtot = false; // 기준 항공기는 기본값으로 시작
             }
             updateCTOTs(0);
             renderFlightQueue();
+            renderTimelineFlights();
         });
 
         el.addEventListener('click', (e) => {
@@ -1039,6 +1056,8 @@ function renderFlightQueue() {
                 }
 
                 updateCTOTs(0);
+                renderFlightQueue();
+                renderTimelineFlights();
             } else { e.target.value = flight.ctot; }
         });
 
