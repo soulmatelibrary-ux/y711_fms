@@ -281,17 +281,18 @@ function findCurrentFlightIndex() {
     allFlights.forEach((flight, index) => {
         const flightUtcSec = timeToSec(flight.eobtUtc);
 
-        // For operational flights, consider the UTC operational day cycle (21:00-21:00)
+        // For operational flights, consider the UTC operational day cycle (21:00-12:00)
         let adjustedFlightSec = flightUtcSec;
         let adjustedCurrentSec = currentUtcSec;
 
         // Operational day boundary handling for UTC times
-        // If current time is in early UTC hours (00:00-08:00) and flight is in evening (21:00-23:59)
-        if (currentUtcSec < 8 * 3600 && flightUtcSec >= 21 * 3600) {
+        // 운항일 기준: UTC 21:00 ~ 다음날 UTC 12:00 (KST 06:00 ~ 21:00)
+        // If current time is in early UTC hours (00:00-12:00) and flight is in evening (21:00-23:59)
+        if (currentUtcSec < 12 * 3600 && flightUtcSec >= 21 * 3600) {
             adjustedCurrentSec = currentUtcSec + 24 * 3600; // Add 24 hours to current time
         }
-        // If flight is in early UTC hours (00:00-08:00) and current time is in evening (21:00-23:59)  
-        else if (flightUtcSec < 8 * 3600 && currentUtcSec >= 21 * 3600) {
+        // If flight is in early UTC hours (00:00-12:00) and current time is in evening (21:00-23:59)
+        else if (flightUtcSec < 12 * 3600 && currentUtcSec >= 21 * 3600) {
             adjustedFlightSec = flightUtcSec + 24 * 3600; // Add 24 hours to flight time
         }
 
@@ -315,8 +316,8 @@ function saveExcelDataToDb(excelData) {
 
     const today = new Date().toISOString().split('T')[0];
 
-    // Clear existing data for today
-    db.run('DELETE FROM flights WHERE uploaded_date = ?', [today]);
+    // Clear ALL existing data (새 Excel 업로드 시 기존 데이터 모두 삭제)
+    db.run('DELETE FROM flights');
 
     // Insert new data
     const stmt = db.prepare(`
@@ -343,9 +344,9 @@ function saveExcelDataToDb(excelData) {
     console.log('Excel data saved to database:', excelData.length, 'flights');
 }
 
-// Load today's flights from database
+// Load flights from database (7일 반복 스케줄)
 function loadTodaysFlights() {
-    console.log("=== LOADING TODAY'S FLIGHTS ===");
+    console.log("=== LOADING FLIGHTS FROM DATABASE ===");
 
     if (!db) {
         console.log('Database not initialized, loading mock data');
@@ -353,15 +354,9 @@ function loadTodaysFlights() {
         return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    const currentDayOfWeek = new Date().getDay(); // 0=Sunday, 1=Monday...
-
-    console.log(`Today: ${today}, Day of week: ${currentDayOfWeek}`);
-    console.log(`Excel data available: ${excelFlightData.length} flights`);
-
-    // If we have Excel data, use it instead of database
+    // If we have Excel data in memory, use it
     if (excelFlightData.length > 0) {
-        console.log('Using Excel data directly');
+        console.log('Using Excel data from memory:', excelFlightData.length, 'flights');
         selectedDate = new Date();
         updateDateSelector();
         loadFlightsForDate();
@@ -369,34 +364,27 @@ function loadTodaysFlights() {
     }
 
     try {
-        // Try to load from database first
-        const stmt = db.prepare('SELECT * FROM flights WHERE uploaded_date = ?');
-        const results = stmt.getAsObject(today);
-        stmt.free();
+        // Load ALL flights from database (7일 반복 스케줄)
+        const allResults = db.exec('SELECT * FROM flights');
 
-        if (results && Object.keys(results).length > 0) {
-            // Convert database results to flight objects
+        if (allResults.length > 0 && allResults[0].values.length > 0) {
+            const rows = allResults[0].values;
+            console.log(`Found ${rows.length} flights in database (7-day schedule)`);
+
             const dbFlights = [];
-            const allResults = db.exec('SELECT * FROM flights WHERE uploaded_date = ?', [today]);
-
-            if (allResults.length > 0) {
-                const rows = allResults[0].values;
-                console.log(`Found ${rows.length} flights in database for today`);
-
-                rows.forEach(row => {
-                    dbFlights.push({
-                        CALLSIGN: row[1],
-                        DEPT: row[2],
-                        DEST: row[3],
-                        CFL: row[4],
-                        EOBT: row[5],
-                        DAY_OF_WEEK: row[6]
-                    });
+            rows.forEach(row => {
+                dbFlights.push({
+                    CALLSIGN: row[1],
+                    DEPT: row[2],
+                    DEST: row[3],
+                    CFL: row[4],
+                    EOBT: row[5],
+                    DAY_OF_WEEK: row[6]
                 });
-            }
+            });
 
             excelFlightData = dbFlights;
-            console.log('Loaded', dbFlights.length, 'flights from database for today');
+            console.log('Loaded', dbFlights.length, 'flights from database (7-day schedule)');
 
             // Set current date as selected
             selectedDate = new Date();
@@ -404,7 +392,7 @@ function loadTodaysFlights() {
 
             loadFlightsForDate();
         } else {
-            console.log('No data in database for today, loading mock data');
+            console.log('No data in database, loading mock data');
             loadMockScheduleData();
         }
     } catch (error) {
@@ -1696,23 +1684,27 @@ function loadFlightsForDate(targetDate = selectedDate) {
     });
 
     // Convert EOBT to Operational Day Base Time (EOBD) for proper sorting
-    // 운항일 기준: UTC 20:00 ~ 다음날 UTC 19:59
-    // 정렬 순서: UTC 20:00~23:59 → 00:00~11:59 → 12:00~19:59
+    // 운항일 기준: UTC 21:00 ~ 다음날 UTC 12:00 (KST 06:00 ~ 21:00)
+    // 정렬 순서: UTC 21:00~23:59 → 00:00~12:00
     mockFlights.forEach(flight => {
         const eobtUtcSec = timeToSec(flight.eobtUtc);
 
-        // Operational day starts at UTC 20:00
-        // UTC 20:00~23:59: 그대로 (먼저 표시)
-        // UTC 00:00~19:59: +24시간 (나중에 표시)
-        flight.eobd = eobtUtcSec < 20 * 3600 ? eobtUtcSec + 24 * 3600 : eobtUtcSec;
+        // Operational day starts at UTC 21:00 (KST 06:00)
+        // UTC 21:00~23:59: 그대로 (먼저 표시)
+        // UTC 00:00~20:59: +24시간 (나중에 표시)
+        flight.eobd = eobtUtcSec < 21 * 3600 ? eobtUtcSec + 24 * 3600 : eobtUtcSec;
     });
 
-    // Sort by EOBD - UTC 20:00+ comes first, then 00:00-19:59
+    // Sort by EOBD - UTC 21:00+ comes first, then 00:00-20:59
     mockFlights.sort((a, b) => a.eobd - b.eobd);
 
-    console.log(`EOBD sorting complete. First 5 flights after sort:`);
+    console.log(`EOBD sorting complete (UTC 21:00 기준). First 5 flights after sort:`);
     mockFlights.slice(0, 5).forEach((flight, idx) => {
-        console.log(`  ${idx + 1}. ${flight.callsign} - UTC: ${flight.eobtUtc}, EOBD: ${flight.eobdFormatted}`);
+        console.log(`  ${idx + 1}. ${flight.callsign} - UTC: ${flight.eobtUtc}, EOBD: ${flight.eobd}`);
+    });
+    console.log(`Last 3 flights:`);
+    mockFlights.slice(-3).forEach((flight, idx) => {
+        console.log(`  ${flight.callsign} - UTC: ${flight.eobtUtc}, EOBD: ${flight.eobd}`);
     });
 
     allFlights = mockFlights;
