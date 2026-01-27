@@ -1114,7 +1114,13 @@ function drawSeparationAnalysis(layer, simTimeInDay) {
             // 자정 넘김 처리
             if (lead.isNextDay) leadStartTime += 86400;
             if (follow.isNextDay) followStartTime += 86400;
-            const timeDiffSec = Math.abs(followStartTime - leadStartTime);
+            let timeDiffSec = Math.abs(followStartTime - leadStartTime);
+
+            // Wrap-around guard: always measure the shortest interval within 24h
+            if (timeDiffSec > 43200) {
+                timeDiffSec = 86400 - timeDiffSec;
+            }
+
             const timeDiffMin = timeDiffSec / 60;
 
             // 분리 기준 위반 체크 (설정값 사용)
@@ -1966,6 +1972,70 @@ function initFlightMap() {
             const txt = createSvgEl('text', { x: x, y: 825, 'text-anchor': 'middle', fill: '#aaa', 'font-size': 11, 'font-weight': 'normal', 'style': 'text-shadow: 0 0 4px #000;' });
             txt.textContent = code;
             gAirports.appendChild(txt);
+        });
+    }
+
+    const gAirportCallouts = document.getElementById('airport-callouts');
+    if (gAirportCallouts) {
+        gAirportCallouts.innerHTML = '';
+        const sortedAirports = Object.keys(airportDatabase)
+            .sort((a, b) => getAirportX(a) - getAirportX(b));
+
+        sortedAirports.forEach((code, index) => {
+            const x = getAirportX(code);
+            const apt = airportDatabase[code];
+            const color = apt.color || '#fff';
+            const boxWidth = 150;
+            const boxHeight = 28;
+            const calloutY = 40 + index * 34;
+            const anchorY = 250;
+
+            const guide = createSvgEl('line', {
+                x1: x,
+                y1: calloutY + boxHeight / 2,
+                x2: x,
+                y2: anchorY,
+                stroke: color,
+                'stroke-width': 1,
+                'stroke-dasharray': '4,4',
+                opacity: 0.5
+            });
+            gAirportCallouts.appendChild(guide);
+
+            const rect = createSvgEl('rect', {
+                x: x - boxWidth / 2,
+                y: calloutY - boxHeight / 2,
+                width: boxWidth,
+                height: boxHeight,
+                rx: 8,
+                fill: 'rgba(5, 10, 20, 0.8)',
+                stroke: color,
+                'stroke-width': 1.2
+            });
+            gAirportCallouts.appendChild(rect);
+
+            const nameText = createSvgEl('text', {
+                x: x,
+                y: calloutY - 2,
+                'text-anchor': 'middle',
+                fill: '#ffffff',
+                'font-size': 13,
+                'font-weight': 'bold',
+                'style': 'text-shadow: 0 0 4px #000;'
+            });
+            nameText.textContent = apt.name;
+            gAirportCallouts.appendChild(nameText);
+
+            const metaText = createSvgEl('text', {
+                x: x,
+                y: calloutY + 11,
+                'text-anchor': 'middle',
+                fill: '#c5d5ff',
+                'font-size': 11,
+                'style': 'text-shadow: 0 0 4px #000;'
+            });
+            metaText.textContent = `${code} → ${apt.mergePoint}`;
+            gAirportCallouts.appendChild(metaText);
         });
     }
 }
