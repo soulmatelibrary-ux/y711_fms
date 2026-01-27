@@ -468,6 +468,68 @@ function calculateFlightWaypoints(flight, startTimeSec) {
     return route;
 }
 
+function getAbsoluteCtotSeconds(flight) {
+    if (typeof flight?.ctotAbsolute === 'number' && !isNaN(flight.ctotAbsolute)) {
+        return flight.ctotAbsolute;
+    }
+    const base = flight?.atd || flight?.ctot || flight?.eobt;
+    if (!base) return null;
+    let sec = timeToSec(base);
+    if (flight?.isNextDay && sec < 86400) {
+        sec += 86400;
+    }
+    return isNaN(sec) ? null : sec;
+}
+
+function alignTimeToAnchor(value, anchor) {
+    if (!isFinite(anchor)) return value;
+    const day = 86400;
+    let aligned = value;
+    while (aligned < anchor - day) aligned += day;
+    while (aligned > anchor + day) aligned -= day;
+    return aligned;
+}
+
+function getFlightTimelineCursor(flight, simTimeSec) {
+    const anchor = getAbsoluteCtotSeconds(flight);
+    if (!isFinite(anchor)) return simTimeSec;
+    return alignTimeToAnchor(simTimeSec, anchor);
+}
+
+function getNextSharedWaypointTimes(followFlight, leadFlight, simTimeSec) {
+    if (!followFlight?.routeWaypoints || !leadFlight?.routeWaypoints) return null;
+    const bufferSec = 120; // 약간의 후방 버퍼 허용
+    const followCursor = getFlightTimelineCursor(followFlight, simTimeSec);
+
+    for (const wpFollow of followFlight.routeWaypoints) {
+        if (wpFollow.time < followCursor - bufferSec) continue;
+        const leadMatch = leadFlight.routeWaypoints.find(wp => wp.name === wpFollow.name);
+        if (leadMatch) {
+            return {
+                name: wpFollow.name,
+                leadTime: leadMatch.time,
+                followTime: wpFollow.time
+            };
+        }
+    }
+
+    // 앞쪽에서 찾지 못한 경우, 가장 최근 공통 웨이포인트라도 반환
+    for (let i = followFlight.routeWaypoints.length - 1; i >= 0; i--) {
+        const wpFollow = followFlight.routeWaypoints[i];
+        if (wpFollow.time > followCursor) continue;
+        const leadMatch = leadFlight.routeWaypoints.find(wp => wp.name === wpFollow.name);
+        if (leadMatch) {
+            return {
+                name: wpFollow.name,
+                leadTime: leadMatch.time,
+                followTime: wpFollow.time
+            };
+        }
+    }
+
+    return null;
+}
+
 // Detect conflicts at convergence points
 function detectConflicts() {
     const conflicts = [];
@@ -584,6 +646,7 @@ function updateCTOTs(startIndex = 0) {
             tentativeCtot = timeToSec(flight.atd);
             flight.ctot = flight.atd;
             flight.routeWaypoints = calculateFlightWaypoints(flight, tentativeCtot);
+            flight.ctotAbsolute = tentativeCtot;
             continue;
         }
 
@@ -695,6 +758,7 @@ function updateCTOTs(startIndex = 0) {
         }
 
         flight.routeWaypoints = myWaypoints; // 이미 계산된 웨이포인트 사용 (중복 계산 제거)
+        flight.ctotAbsolute = tentativeCtot;
 
         // Debug log for troubleshooting
         if (isNaN(tentativeCtot) || tentativeCtot < 0) {
@@ -1091,6 +1155,7 @@ function updateFlightMap() {
 function drawSeparationAnalysis(layer, simTimeInDay) {
     // 이전 충돌 기록 초기화
     const newConflictingIds = new Set();
+    const simTimeAbsolute = simTimeSeconds;
 
     const activeFlights = allFlights
         .filter(f => {
@@ -1115,6 +1180,13 @@ function drawSeparationAnalysis(layer, simTimeInDay) {
             if (lead.isNextDay) leadStartTime += 86400;
             if (follow.isNextDay) followStartTime += 86400;
             let timeDiffSec = Math.abs(followStartTime - leadStartTime);
+            let referenceWaypoint = null;
+
+            const sharedWaypoint = getNextSharedWaypointTimes(follow, lead, simTimeAbsolute);
+            if (sharedWaypoint) {
+                timeDiffSec = Math.abs(sharedWaypoint.followTime - sharedWaypoint.leadTime);
+                referenceWaypoint = sharedWaypoint.name;
+            }
 
             // Wrap-around guard: always measure the shortest interval within 24h
             if (timeDiffSec > 43200) {
@@ -1151,7 +1223,13 @@ function drawSeparationAnalysis(layer, simTimeInDay) {
 
             // 충돌 시 빨간색 + 경고 아이콘
             const labelColor = isConflict ? '#ff4444' : 'var(--accent-cyan)';
-            const labelText = isConflict ? `⚠️ ${Math.round(timeDiffMin)}min` : `${Math.round(timeDiffMin)}min`;
+            let labelText = `${Math.round(timeDiffMin)}min`;
+            if (referenceWaypoint) {
+                labelText = `${referenceWaypoint} ${labelText}`;
+            }
+            if (isConflict) {
+                labelText = `⚠️ ${labelText}`;
+            }
 
             const label = createSvgEl('text', {
                 x: midX, y: midY - 5,
@@ -1216,7 +1294,7 @@ function updateWaypointX() {
         dists.push(totalDist);
     }
 
-    const startX = 200;
+    const startX = 290;
     const endX = 1530;
     const scale = (endX - startX) / totalDist;
 
