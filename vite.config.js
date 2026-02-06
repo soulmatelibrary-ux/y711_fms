@@ -14,7 +14,8 @@ export default defineConfig({
         exclude: ['sql.js']
     },
     server: {
-        port: 7300
+        port: 7300,
+        allowedHosts: ['ssenalabs.iptime.org', 'localhost', '127.0.0.1']
     },
     preview: {
         port: 7300

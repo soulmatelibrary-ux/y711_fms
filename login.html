@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Y711 FMS - Login</title>
+    <title>CJU Flow Simulator - Login</title>
     <link rel="stylesheet" href="/src/style.css">
     <style>
         body {
@@ -13,34 +13,111 @@
             align-items: center;
             min-height: 100vh;
             background: radial-gradient(circle at 50% 50%, #1a2230 0%, #0d1117 100%);
+            position: relative;
+            overflow: hidden;
+            margin: 0;
         }
+
+        /* Dynamic SVG Background Container */
+        .bg-animated-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+
+        @keyframes flow-dash {
+            to {
+                stroke-dashoffset: -100;
+            }
+        }
+
+        .flow-line {
+            fill: none;
+            stroke: var(--accent-blue);
+            stroke-width: 1;
+            stroke-dasharray: 4, 12;
+            opacity: 0.3;
+            animation: flow-dash 10s linear infinite;
+        }
+
+        .flow-line-cyan {
+            stroke: var(--accent-cyan);
+            animation-duration: 15s;
+        }
+
+        .waypoint {
+            fill: #1a2230;
+            stroke: var(--accent-blue);
+            stroke-width: 1.5;
+            filter: drop-shadow(0 0 5px var(--accent-blue));
+        }
+
+        .waypoint-label {
+            font-size: 10px;
+            fill: #fff;
+            opacity: 0.9;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+            font-family: 'Outfit';
+            font-weight: 500;
+        }
+
+        .aircraft-icon {
+            fill: white;
+            stroke: var(--accent-cyan);
+            stroke-width: 0.5;
+            filter: drop-shadow(0 0 3px var(--accent-cyan));
+        }
+
+        .separation-text {
+            fill: var(--accent-orange);
+            font-size: 9px;
+            font-family: 'Outfit';
+            font-weight: bold;
+            opacity: 0.8;
+        }
+
+        .route-path {
+            fill: none;
+            stroke: var(--accent-blue);
+            stroke-width: 1.5;
+            stroke-dasharray: 4 4;
+            opacity: 0.45;
+        }
+
 
         .login-container {
             width: 100%;
-            max-width: 420px;
-            padding: 2rem;
+            max-width: 440px;
+            padding: 1.5rem;
         }
 
         .login-card {
-            background: rgba(22, 27, 34, 0.8);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 2.5rem;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            background: rgba(26, 31, 46, 0.65);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.8s ease-out;
         }
 
         .login-header {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
         }
 
         .login-header h1 {
             font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            font-size: 2rem;
+            font-size: 1.75rem;
             font-weight: 700;
             color: var(--text-primary);
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.25rem;
         }
 
         .login-header h1 span {
@@ -55,7 +132,7 @@
         .login-form {
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 1.25rem;
         }
 
         .form-group {
@@ -74,7 +151,7 @@
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 0.875rem 1rem;
+            padding: 0.75rem 1rem;
             color: var(--text-primary);
             font-size: 1rem;
             transition: all 0.2s;
@@ -92,7 +169,7 @@
             color: white;
             border: none;
             border-radius: 8px;
-            padding: 1rem;
+            padding: 0.875rem;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
@@ -144,7 +221,7 @@
 
         .login-footer {
             text-align: center;
-            margin-top: 1.5rem;
+            margin-top: 1.25rem;
             color: var(--text-tertiary);
             font-size: 0.85rem;
         }
@@ -152,11 +229,92 @@
 </head>
 
 <body class="dark-theme">
+    <div class="bg-animated-container">
+        <svg width="100%" height="100%" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1200 800">
+            <!-- Defined Routes -->
+            <path class="route-path" d="M 220,80 L 420,200 L 620,320 L 820,440 L 1020,560" />
+            <!-- Main Flow: RKSS -> BULTI -> MEKIL -> DALSU -> RKPC -->
+            <path class="route-path" d="M 270,480 L 420,200" style="opacity: 0.2;" /> <!-- Approach from West -->
+
+            <!-- Waypoints -->
+            <g transform="translate(220,80)">
+                <rect class="waypoint" x="-4" y="-4" width="8" height="8" transform="rotate(45)" />
+                <text class="waypoint-label" x="12" y="5">RKSS (김포)</text>
+            </g>
+            <g transform="translate(420,200)">
+                <rect class="waypoint" x="-4" y="-4" width="8" height="8" transform="rotate(45)" />
+                <text class="waypoint-label" x="12" y="5">MEKIL</text>
+            </g>
+            <g transform="translate(620,320)">
+                <rect class="waypoint" x="-4" y="-4" width="8" height="8" transform="rotate(45)" />
+                <text class="waypoint-label" x="12" y="5">MANGI</text>
+            </g>
+            <g transform="translate(820,440)">
+                <rect class="waypoint" x="-4" y="-4" width="8" height="8" transform="rotate(45)" />
+                <text class="waypoint-label" x="12" y="5">DALSU</text>
+            </g>
+            <g transform="translate(1020,560)">
+                <rect class="waypoint" x="-4" y="-4" width="8" height="8" transform="rotate(45)" />
+                <text class="waypoint-label" x="12" y="5">RKPC (제주)</text>
+            </g>
+
+            <!-- Simulated Aircraft & Separation -->
+            <g>
+                <!-- Plane 1 (Leading) -->
+                <polygon class="aircraft-icon" points="0,-6 4,4 -4,4" transform="translate(720,380) rotate(149)" />
+                <text class="waypoint-label" x="735" y="375" style="fill: var(--accent-cyan)">KAL123</text>
+
+                <!-- Separation Indicator -->
+                <line x1="720" y1="380" x2="650" y2="338" stroke="#ff9500" stroke-width="1.5" stroke-dasharray="2 2" />
+                <text class="separation-text" x="685" y="350">3 min (SEP)</text>
+
+                <!-- Plane 2 (Trailing) -->
+                <polygon class="aircraft-icon" points="0,-6 4,4 -4,4" transform="translate(650,338) rotate(149)" />
+                <text class="waypoint-label" x="630" y="325" style="fill: var(--accent-cyan)">AAR456</text>
+            </g>
+
+            <g>
+                <!-- Plane 3 (Entering BULTI/MEKIL) -->
+                <polygon class="aircraft-icon" points="0,-6 4,4 -4,4" transform="translate(290,122) rotate(149)" />
+                <text class="waypoint-label" x="305" y="117" style="fill: var(--accent-cyan)">JJA789</text>
+            </g>
+
+            <!-- Branching Departure Routes -->
+            <g>
+                <!-- Departure from MEKIL (Opposite direction straight line) -->
+                <line x1="420" y1="200" x2="300" y2="100" class="route-path"
+                    style="stroke-dasharray: none; opacity: 0.3;" />
+                <polygon class="aircraft-icon" points="0,-6 4,4 -4,4" transform="translate(360,150) rotate(-30)" />
+                <text class="waypoint-label" x="330" y="140" style="fill: var(--accent-cyan); font-size: 8px;">JJA111
+                    DEP</text>
+
+                <!-- Departure from MANGI (Short dashed line) -->
+                <line x1="620" y1="320" x2="520" y2="380" class="route-path"
+                    style="stroke-dasharray: 4 4; opacity: 0.25;" />
+                <polygon class="aircraft-icon" points="0,-6 4,4 -4,4" transform="translate(570,350) rotate(210)" />
+                <text class="waypoint-label" x="540" y="340" style="fill: var(--accent-cyan); font-size: 8px;">AAR222
+                    DEP</text>
+
+                <!-- Departure from DALSU (Short dashed line) -->
+                <line x1="820" y1="440" x2="720" y2="500" class="route-path"
+                    style="stroke-dasharray: 4 4; opacity: 0.25;" />
+                <polygon class="aircraft-icon" points="0,-6 4,4 -4,4" transform="translate(770,470) rotate(210)" />
+                <text class="waypoint-label" x="740" y="460" style="fill: var(--accent-cyan); font-size: 8px;">TWB333
+                    DEP</text>
+            </g>
+
+            <!-- Abstract Flow Lines for Depth -->
+            <path class="flow-line" d="M -50,200 Q 400,100 1200,300" style="opacity: 0.25" />
+            <path class="flow-line flow-line-cyan" d="M -50,500 Q 600,300 1200,600" style="opacity: 0.25" />
+        </svg>
+    </div>
+
     <div class="login-container">
         <div class="login-card">
             <div class="login-header">
-                <h1>Y711 <span>FMS</span></h1>
-                <p>흐름 관리 시스템</p>
+                <p style="color: var(--accent-blue); font-weight: 600; margin-bottom: 0.25rem;">인천항공교통관제소</p>
+                <h1>제주공항 <span>흐름 관리 시스템</span></h1>
+                <p>국내선 항공기 정체 예방 시뮬레이션 (CJU Flow Simulator)</p>
             </div>
 
             <form class="login-form" id="login-form">
@@ -178,7 +336,7 @@
             </form>
 
             <div class="login-footer">
-                © 2026 Y711 FMS. All rights reserved.
+                © 2026 한국공항공사. All rights reserved.
             </div>
         </div>
     </div>
