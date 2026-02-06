@@ -1910,13 +1910,6 @@ function processExcelFile(file, scheduleStartDate = null, scheduleEndDate = null
 function loadFlightsForDate(targetDate = selectedDate) {
     console.log("=== LOADING FLIGHTS FOR DATE ===");
     console.log("Target date:", targetDate.toDateString());
-    console.log("Excel data available:", excelFlightData.length, "flights");
-
-    if (excelFlightData.length === 0) {
-        console.log('No Excel data, using mock data');
-        loadMockScheduleData();
-        return;
-    }
 
     // Get day of week for the selected operational day
     // Excel uses 1=Monday, 2=Tuesday, ... 7=Sunday
@@ -1927,24 +1920,68 @@ function loadFlightsForDate(targetDate = selectedDate) {
     const targetDateStr = targetDate.toISOString().split('T')[0];
 
     const mockFlights = [];
+    let filteredFlights = [];
 
-    // Filter Excel data for the selected day of week
-    const todaysFlights = excelFlightData.filter(row => {
-        const dayOfWeek = parseDayOfWeek(row.DAY_OF_WEEK);
-        return dayOfWeek === targetDayOfWeek;
-    });
+    // Try to load from database first
+    if (db) {
+        try {
+            const results = db.exec(`
+                SELECT * FROM flights
+                WHERE day_of_week = ?
+                AND (
+                    (schedule_start_date IS NULL AND schedule_end_date IS NULL)
+                    OR (schedule_start_date <= ? AND schedule_end_date >= ?)
+                )
+                ORDER BY eobt_utc ASC
+            `, [targetDayOfWeek, targetDateStr, targetDateStr]);
 
-    console.log(`Filtered flights for day of week ${targetDayOfWeek} (${targetDate.toDateString()}): ${todaysFlights.length} flights`);
-
-    // Filter by schedule date range if available (from database query)
-    const filteredFlights = todaysFlights.filter(row => {
-        // If the flight has schedule dates (loaded from database with date constraints)
-        if (row.schedule_start_date && row.schedule_end_date) {
-            return targetDateStr >= row.schedule_start_date && targetDateStr <= row.schedule_end_date;
+            if (results.length > 0 && results[0].values.length > 0) {
+                // Convert database results to flight objects
+                const columns = results[0].columns;
+                filteredFlights = results[0].values.map(row => {
+                    const obj = {};
+                    columns.forEach((col, idx) => {
+                        obj[col] = row[idx];
+                    });
+                    return obj;
+                });
+                console.log(`✅ Loaded ${filteredFlights.length} flights from DATABASE for day ${targetDayOfWeek}`);
+            } else {
+                console.log(`⚠️ No flights in DATABASE for day ${targetDayOfWeek}, checking memory...`);
+                // Fallback to memory if database is empty
+                filteredFlights = excelFlightData.filter(row => {
+                    const dayOfWeek = parseDayOfWeek(row.DAY_OF_WEEK);
+                    if (dayOfWeek !== targetDayOfWeek) return false;
+                    // Check schedule date range
+                    if (row.schedule_start_date && row.schedule_end_date) {
+                        return targetDateStr >= row.schedule_start_date && targetDateStr <= row.schedule_end_date;
+                    }
+                    return true;
+                });
+                console.log(`   Loaded ${filteredFlights.length} flights from MEMORY`);
+            }
+        } catch (error) {
+            console.error('Database query error:', error);
+            // Fallback to memory
+            filteredFlights = excelFlightData.filter(row => {
+                const dayOfWeek = parseDayOfWeek(row.DAY_OF_WEEK);
+                return dayOfWeek === targetDayOfWeek;
+            });
         }
-        // Legacy flights without schedule dates are always included
-        return true;
-    });
+    } else {
+        // No database, use memory
+        filteredFlights = excelFlightData.filter(row => {
+            const dayOfWeek = parseDayOfWeek(row.DAY_OF_WEEK);
+            return dayOfWeek === targetDayOfWeek;
+        });
+    }
+
+    // If no flights found, use mock data
+    if (filteredFlights.length === 0) {
+        console.log('⚠️ No flights available, using mock schedule data');
+        loadMockScheduleData();
+        return;
+    }
 
     console.log(`Processing ${filteredFlights.length} flights for operational day...`);
 
