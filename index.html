@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Y711 흐름 관리 시스템 (Y711 Merge Point Management)</title>
+    <title>CJU Flow Simulator - 제주공항 도착 흐름 관리 시스템</title>
     <link rel="stylesheet" href="/src/style.css">
     <!-- Authentication -->
     <script src="/auth.js"></script>
@@ -21,7 +21,7 @@
         <!-- 상단 헤더 (메뉴 및 설정 요약) -->
         <header class="app-header">
             <div class="header-left">
-                <h1>Y711 <span>FMS</span></h1>
+                <h1>제주공항 <span>흐름 관리 시스템</span></h1>
                 <nav class="top-nav">
                     <button class="nav-btn active" id="view-dashboard">Dashboard</button>
                     <button class="nav-btn" id="view-settings">Settings</button>
@@ -30,7 +30,10 @@
                 <div class="excel-upload-section">
                     <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display: none;">
                     <button onclick="document.getElementById('excel-upload').click()" class="btn btn-primary excel-btn">
-                        Excel
+                        📂 Excel 업로드
+                    </button>
+                    <button id="download-sample-btn" class="btn btn-secondary excel-btn">
+                        📥 샘플 다운로드
                     </button>
                     <div id="upload-status" class="upload-status"></div>
                 </div>
@@ -87,7 +90,7 @@
                             <option value="10">10 min</option>
                         </select>
                         <button id="reset-ctot-btn" class="btn btn-secondary"
-                            style="padding: 4px 10px; font-size: 0.75rem;" title="CTOT 초기화">새로  고침</button>
+                            style="padding: 4px 10px; font-size: 0.75rem;" title="CTOT 초기화">새로 고침</button>
                     </div>
 
                     <!-- Flight Queue Header -->
@@ -218,7 +221,7 @@
             style="min-width: 700px; max-width: 900px; max-height: 85vh; overflow-y: auto;">
             <div class="modal-header"
                 style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; position: sticky; top: 0; background: var(--card-bg); padding: 1rem; margin: -1.5rem -1.5rem 1rem -1.5rem; border-radius: 12px 12px 0 0;">
-                <h3>Y711 FMS 사용 가이드</h3>
+                <h3>CJU Flow Simulator 사용 가이드</h3>
                 <button class="btn-icon" id="close-help"
                     style="background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">✕</button>
             </div>
@@ -230,7 +233,7 @@
                         style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
                         시스템 소개</h4>
                     <p style="margin-bottom: 1rem;">
-                        <strong>Y711 FMS</strong>는 서해안 항공로(Y711)를 이용하여 <strong>제주(RKPC)</strong>로 향하는 항공편의
+                        <strong>CJU Flow Simulator</strong>는 서해안 항공로(Y711)를 이용하여 <strong>제주(RKPC)</strong>로 향하는 항공편의
                         <strong>CTOT(Calculated Take-Off Time, 계산된 이륙시간)</strong>를 관리하는 시스템입니다.
                     </p>
                     <p>
@@ -327,11 +330,16 @@
                         style="color: var(--accent-cyan); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
                         CTOT "+1" 표시 의미</h4>
                     <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; margin-bottom: 1rem;">
-                        <p style="margin-bottom: 0.8rem;">CTOT 옆의 <strong style="color: #ffcc00;">+1</strong>은 <strong>다음 날(+1일)</strong>을 의미합니다.</p>
-                        <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; font-family: monospace;">
+                        <p style="margin-bottom: 0.8rem;">CTOT 옆의 <strong style="color: #ffcc00;">+1</strong>은
+                            <strong>다음 날(+1일)</strong>을 의미합니다.
+                        </p>
+                        <div
+                            style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; font-family: monospace;">
                             <p style="margin-bottom: 0.5rem;"><strong>예시:</strong></p>
-                            <p style="color: var(--text-secondary);">EOBT: <span style="color: #58a6ff;">2340</span> (23:40)</p>
-                            <p style="color: var(--text-secondary);">CTOT: <span style="color: #ffcc00;">0004+1</span> → 다음 날 00:04</p>
+                            <p style="color: var(--text-secondary);">EOBT: <span style="color: #58a6ff;">2340</span>
+                                (23:40)</p>
+                            <p style="color: var(--text-secondary);">CTOT: <span style="color: #ffcc00;">0004+1</span> →
+                                다음 날 00:04</p>
                         </div>
                         <p style="margin-top: 0.8rem; color: var(--text-secondary);">
                             자정(00:00)을 넘긴 CTOT는 다음 날로 표시되어, 운항일 혼동을 방지합니다.
@@ -350,7 +358,8 @@
                     </p>
 
                     <!-- 예제 1: 김포 -->
-                    <div style="background: rgba(88, 166, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #58a6ff;">
+                    <div
+                        style="background: rgba(88, 166, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #58a6ff;">
                         <strong style="color: #58a6ff;">예제 1: 김포(RKSS) 출발 항공기</strong>
                         <div style="margin-top: 0.8rem; font-family: monospace; font-size: 0.9rem;">
                             <p>CTOT: <span style="color: #58a6ff;">0600</span> (06:00 이륙)</p>
@@ -381,7 +390,8 @@
                     </div>
 
                     <!-- 예제 2: 청주 -->
-                    <div style="background: rgba(188, 140, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #bc8cff;">
+                    <div
+                        style="background: rgba(188, 140, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #bc8cff;">
                         <strong style="color: #bc8cff;">예제 2: 청주(RKTU) 출발 항공기</strong>
                         <div style="margin-top: 0.8rem; font-family: monospace; font-size: 0.9rem;">
                             <p>CTOT: <span style="color: #bc8cff;">0603</span> (06:03 이륙)</p>
@@ -402,7 +412,8 @@
                     </div>
 
                     <!-- 충돌 감지 예제 -->
-                    <div style="background: rgba(255, 68, 68, 0.1); padding: 15px; border-radius: 8px; border-left: 3px solid #ff4444;">
+                    <div
+                        style="background: rgba(255, 68, 68, 0.1); padding: 15px; border-radius: 8px; border-left: 3px solid #ff4444;">
                         <strong style="color: #ff4444;">충돌 감지 및 CTOT 조정 예제</strong>
                         <div style="margin-top: 0.8rem; font-size: 0.9rem;">
                             <p style="color: var(--text-secondary); margin-bottom: 0.8rem;">
@@ -411,8 +422,10 @@
                             <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px;">
                                 <p style="color: #ff4444; margin-bottom: 0.5rem;">문제: MEKIL 분리 = 0분 (3분 미만)</p>
                                 <p style="color: #4ade80;">해결: 청주 항공기 CTOT를 3분 지연</p>
-                                <p style="margin-top: 0.5rem;">새 CTOT: <span style="color: #bc8cff;">0603</span> → <span style="color: #ffcc00;">0606</span></p>
-                                <p style="color: var(--text-secondary);">→ MEKIL 도착: 0606 + 7분 = <span style="color: #4ade80;">0613</span> (김포와 3분 분리 확보)</p>
+                                <p style="margin-top: 0.5rem;">새 CTOT: <span style="color: #bc8cff;">0603</span> → <span
+                                        style="color: #ffcc00;">0606</span></p>
+                                <p style="color: var(--text-secondary);">→ MEKIL 도착: 0606 + 7분 = <span
+                                        style="color: #4ade80;">0613</span> (김포와 3분 분리 확보)</p>
                             </div>
                         </div>
                     </div>
@@ -531,6 +544,76 @@
         </div>
     </div>
 
+    <!-- 스케줄 기간 선택 모달 -->
+    <div id="schedule-period-modal" class="modal hidden">
+        <div class="modal-content glass-card" style="min-width: 450px;">
+            <div class="modal-header"
+                style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <h3>📅 스케줄 기간 선택</h3>
+                <button class="btn-icon" id="close-schedule-modal"
+                    style="background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">✕</button>
+            </div>
+
+            <div class="form-group">
+                <label>시작일</label>
+                <input type="date" id="schedule-start-date" class="form-input">
+            </div>
+
+            <div class="form-group">
+                <label>종료일</label>
+                <input type="date" id="schedule-end-date" class="form-input">
+            </div>
+
+            <div class="form-group">
+                <label>빠른 선택</label>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-secondary" id="quick-3m" onclick="setSchedulePeriod(3)">3개월</button>
+                    <button class="btn btn-secondary" id="quick-6m" onclick="setSchedulePeriod(6)">6개월</button>
+                    <button class="btn btn-secondary" id="quick-12m" onclick="setSchedulePeriod(12)">1년</button>
+                </div>
+            </div>
+
+            <div style="background: rgba(88,166,255,0.1); padding: 10px; border-radius: 4px; margin: 15px 0;">
+                <span style="color: var(--text-secondary); font-size: 0.9rem;" id="period-summary">
+                    기간을 선택하세요
+                </span>
+            </div>
+
+            <div class="modal-footer" style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button class="btn btn-secondary" id="cancel-schedule">취소</button>
+                <button class="btn btn-primary" id="confirm-schedule">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 중복 경고 모달 -->
+    <div id="overlap-warning-modal" class="modal hidden">
+        <div class="modal-content glass-card" style="min-width: 500px;">
+            <div class="modal-header"
+                style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <h3>⚠️ 기존 데이터 덮어쓰기 경고</h3>
+                <button class="btn-icon" id="close-overlap-modal"
+                    style="background:none; border:none; color:white; font-size:1.2rem; cursor:pointer;">✕</button>
+            </div>
+
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                다음 기간의 기존 데이터가 있습니다. 해당 구간은 새로운 데이터로 업데이트됩니다:
+            </p>
+
+            <div id="overlap-list" style="background: rgba(248,81,73,0.1); padding: 10px; border-radius: 4px; margin-bottom: 1rem; max-height: 200px; overflow-y: auto;">
+                <!-- 겹치는 기간 목록 -->
+            </div>
+
+            <div class="modal-footer" style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button class="btn btn-secondary" id="cancel-overlap">취소</button>
+                <button class="btn btn-danger" id="confirm-overlap">📤 업로드</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
     <!-- 설정 모달 -->
     <div id="settings-modal" class="modal hidden">
         <div class="modal-content glass-card" style="min-width: 600px;">
@@ -617,6 +700,148 @@
             // 도움말 모달 닫기
             document.getElementById('close-help')?.addEventListener('click', () => {
                 document.getElementById('help-modal')?.classList.add('hidden');
+            });
+
+            // ============================================
+            // EXCEL SCHEDULE MANAGEMENT
+            // ============================================
+
+            let pendingExcelFile = null;
+            let currentScheduleStartDate = null;
+            let currentScheduleEndDate = null;
+
+            // Excel 파일 선택 이벤트
+            document.getElementById('excel-upload')?.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    pendingExcelFile = file;
+                    // 스케줄 기간 모달 표시
+                    document.getElementById('schedule-period-modal')?.classList.remove('hidden');
+                    // 파일 인풋 리셋
+                    e.target.value = '';
+                }
+            });
+
+            // 샘플 다운로드 버튼
+            document.getElementById('download-sample-btn')?.addEventListener('click', () => {
+                downloadSampleExcel();
+            });
+
+            // 스케줄 기간 모달 - 취소 버튼
+            document.getElementById('cancel-schedule')?.addEventListener('click', () => {
+                document.getElementById('schedule-period-modal')?.classList.add('hidden');
+                pendingExcelFile = null;
+            });
+
+            // 스케줄 기간 모달 - 닫기 버튼
+            document.getElementById('close-schedule-modal')?.addEventListener('click', () => {
+                document.getElementById('schedule-period-modal')?.classList.add('hidden');
+                pendingExcelFile = null;
+            });
+
+            // 빠른 기간 선택 함수
+            window.setSchedulePeriod = function(months) {
+                const today = new Date();
+                const endDate = new Date(today);
+                const startDate = new Date(today);
+                startDate.setMonth(startDate.getMonth() - months);
+
+                const startStr = startDate.toISOString().split('T')[0];
+                const endStr = endDate.toISOString().split('T')[0];
+
+                document.getElementById('schedule-start-date').value = startStr;
+                document.getElementById('schedule-end-date').value = endStr;
+                updatePeriodSummary();
+            };
+
+            // 기간 요약 업데이트
+            window.updatePeriodSummary = function() {
+                const startDate = document.getElementById('schedule-start-date').value;
+                const endDate = document.getElementById('schedule-end-date').value;
+                const summary = document.getElementById('period-summary');
+
+                if (startDate && endDate) {
+                    summary.textContent = '📅 ' + formatDateRange(startDate, endDate);
+                } else {
+                    summary.textContent = '기간을 선택하세요';
+                }
+            };
+
+            // 날짜 입력 이벤트
+            document.getElementById('schedule-start-date')?.addEventListener('change', updatePeriodSummary);
+            document.getElementById('schedule-end-date')?.addEventListener('change', updatePeriodSummary);
+
+            // 기본값: 6개월
+            window.setSchedulePeriod(6);
+
+            // 스케줄 기간 모달 - 확인 버튼
+            document.getElementById('confirm-schedule')?.addEventListener('click', () => {
+                const startDate = document.getElementById('schedule-start-date').value;
+                const endDate = document.getElementById('schedule-end-date').value;
+
+                if (!startDate || !endDate) {
+                    showToast('시작일과 종료일을 선택해주세요', 'error');
+                    return;
+                }
+
+                if (startDate > endDate) {
+                    showToast('시작일이 종료일보다 클 수 없습니다', 'error');
+                    return;
+                }
+
+                currentScheduleStartDate = startDate;
+                currentScheduleEndDate = endDate;
+
+                // 중복 감지
+                if (typeof detectScheduleOverlap === 'function') {
+                    const overlap = detectScheduleOverlap(startDate, endDate);
+                    if (overlap.hasOverlap) {
+                        // 중복 경고 모달 표시
+                        document.getElementById('schedule-period-modal')?.classList.add('hidden');
+                        showOverlapWarning(overlap.overlappingDates, startDate, endDate);
+                    } else {
+                        // 겹치지 않으면 바로 업로드
+                        document.getElementById('schedule-period-modal')?.classList.add('hidden');
+                        processExcelFile(pendingExcelFile, startDate, endDate);
+                    }
+                } else {
+                    // 함수 로드 전에는 바로 업로드
+                    document.getElementById('schedule-period-modal')?.classList.add('hidden');
+                    processExcelFile(pendingExcelFile, startDate, endDate);
+                }
+            });
+
+            // 중복 경고 모달 표시
+            window.showOverlapWarning = function(overlappingDates, newStart, newEnd) {
+                const overlapList = document.getElementById('overlap-list');
+                overlapList.innerHTML = '';
+
+                overlappingDates.forEach(period => {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'padding: 8px; background: rgba(0,0,0,0.2); border-radius: 4px; margin-bottom: 4px;';
+                    item.textContent = `📅 ${period.start} ~ ${period.end}`;
+                    overlapList.appendChild(item);
+                });
+
+                document.getElementById('overlap-warning-modal')?.classList.remove('hidden');
+            };
+
+            // 중복 경고 모달 - 취소 버튼
+            document.getElementById('cancel-overlap')?.addEventListener('click', () => {
+                document.getElementById('overlap-warning-modal')?.classList.add('hidden');
+                pendingExcelFile = null;
+            });
+
+            // 중복 경고 모달 - 닫기 버튼
+            document.getElementById('close-overlap-modal')?.addEventListener('click', () => {
+                document.getElementById('overlap-warning-modal')?.classList.add('hidden');
+                pendingExcelFile = null;
+            });
+
+            // 중복 경고 모달 - 확인 버튼
+            document.getElementById('confirm-overlap')?.addEventListener('click', () => {
+                document.getElementById('overlap-warning-modal')?.classList.add('hidden');
+                processExcelFile(pendingExcelFile, currentScheduleStartDate, currentScheduleEndDate);
             });
         }
     </script>

@@ -41,9 +41,23 @@ async function initDatabase() {
                 cfl TEXT,
                 eobt_utc TEXT,
                 day_of_week INTEGER,
-                uploaded_date TEXT
+                uploaded_date TEXT,
+                schedule_start_date TEXT,
+                schedule_end_date TEXT
             )
         `);
+
+        // Migration: Add new columns if they don't exist (for existing databases)
+        try {
+            db.run('ALTER TABLE flights ADD COLUMN schedule_start_date TEXT');
+        } catch (e) {
+            // Column already exists, ignore error
+        }
+        try {
+            db.run('ALTER TABLE flights ADD COLUMN schedule_end_date TEXT');
+        } catch (e) {
+            // Column already exists, ignore error
+        }
 
         // Load today's flights automatically
         loadTodaysFlights();
@@ -310,23 +324,137 @@ function findCurrentFlightIndex() {
     return closestIndex;
 }
 
-// Save Excel data to SQLite database
-function saveExcelDataToDb(excelData) {
-    if (!db) return;
+// ============================================
+// SCHEDULE MANAGEMENT FUNCTIONS
+// ============================================
+
+// Check if date ranges overlap
+function datesOverlap(start1, end1, start2, end2) {
+    return start1 <= end2 && end1 >= start2;
+}
+
+// Detect schedule overlaps for new Excel upload
+function detectScheduleOverlap(newStartDate, newEndDate) {
+    if (!db) return { hasOverlap: false, overlappingDates: [] };
+
+    try {
+        const results = db.exec(`
+            SELECT DISTINCT schedule_start_date, schedule_end_date
+            FROM flights
+            WHERE schedule_start_date IS NOT NULL
+            AND schedule_end_date IS NOT NULL
+        `);
+
+        const overlappingDates = [];
+        if (results.length > 0 && results[0].values.length > 0) {
+            results[0].values.forEach(row => {
+                const existingStart = row[0];
+                const existingEnd = row[1];
+                if (datesOverlap(newStartDate, newEndDate, existingStart, existingEnd)) {
+                    overlappingDates.push({
+                        start: existingStart,
+                        end: existingEnd
+                    });
+                }
+            });
+        }
+
+        return {
+            hasOverlap: overlappingDates.length > 0,
+            overlappingDates: overlappingDates
+        };
+    } catch (e) {
+        console.error('Error detecting schedule overlap:', e);
+        return { hasOverlap: false, overlappingDates: [] };
+    }
+}
+
+// Show toast notification
+function showToast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toast-container') || createToastContainer();
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toast.style.animation = `slideIn 0.3s ease-out`;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.animation = `slideOut 0.3s ease-out`;
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+    return container;
+}
+
+// Download sample Excel file
+function downloadSampleExcel() {
+    const sampleData = [
+        { CALLSIGN: 'AAR123', DEPT: 'RKSS', DEST: 'RKPC', CFL: 'FL280', EOBT: '0630', DAY_OF_WEEK: 1 },
+        { CALLSIGN: 'KAL456', DEPT: 'RKTU', DEST: 'RKPC', CFL: 'FL320', EOBT: '0745', DAY_OF_WEEK: 1 },
+        { CALLSIGN: 'JNA789', DEPT: 'RKJK', DEST: 'RKPC', CFL: 'FL290', EOBT: '0830', DAY_OF_WEEK: 2 },
+        { CALLSIGN: 'AAL234', DEPT: 'RKSS', DEST: 'RKPC', CFL: 'FL310', EOBT: '0920', DAY_OF_WEEK: 2 },
+        { CALLSIGN: 'ICE567', DEPT: 'RKTU', DEST: 'RKPC', CFL: 'FL300', EOBT: '1045', DAY_OF_WEEK: 3 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(sampleData);
+    ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
 
     const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `FMS_Schedule_Template_${today}.xlsx`);
 
-    // Clear ALL existing data (새 Excel 업로드 시 기존 데이터 모두 삭제)
-    db.run('DELETE FROM flights');
+    showToast('샘플 파일 다운로드 완료', 'info');
+}
+
+// Format date for display
+function formatDateRange(startDate, endDate) {
+    const days = Math.floor((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
+    const months = Math.floor(days / 30);
+    if (months > 0) {
+        return `${startDate} ~ ${endDate} (약 ${months}개월)`;
+    } else {
+        return `${startDate} ~ ${endDate} (${days}일)`;
+    }
+}
+
+// Save Excel data to SQLite database
+function saveExcelDataToDb(excelData, scheduleStartDate = null, scheduleEndDate = null) {
+    if (!db) return;
+
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timestamp = now.getTime();
+
+    // If schedule dates provided, delete only overlapping records
+    if (scheduleStartDate && scheduleEndDate) {
+        db.run(`
+            DELETE FROM flights
+            WHERE schedule_start_date IS NOT NULL
+            AND schedule_end_date IS NOT NULL
+            AND schedule_start_date <= ?
+            AND schedule_end_date >= ?
+        `, [scheduleEndDate, scheduleStartDate]);
+    } else {
+        // Legacy mode: no schedule dates provided, delete all
+        db.run('DELETE FROM flights');
+    }
 
     // Insert new data
     const stmt = db.prepare(`
-        INSERT INTO flights (id, callsign, dept, dest, cfl, eobt_utc, day_of_week, uploaded_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO flights (id, callsign, dept, dest, cfl, eobt_utc, day_of_week, uploaded_date, schedule_start_date, schedule_end_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     excelData.forEach((row, index) => {
-        const id = `${today}_${index}`;
+        const id = `${today}_${index}_${timestamp}`;
         stmt.run([
             id,
             row.CALLSIGN || '',
@@ -335,13 +463,16 @@ function saveExcelDataToDb(excelData) {
             row.CFL || '',
             row.EOBT || '',
             parseDayOfWeek(row.DAY_OF_WEEK),
-            today
+            today,
+            scheduleStartDate || null,
+            scheduleEndDate || null
         ]);
     });
 
     stmt.free();
     saveDatabase();
-    console.log('Excel data saved to database:', excelData.length, 'flights');
+    console.log('Excel data saved to database:', excelData.length, 'flights',
+        scheduleStartDate ? `(Period: ${scheduleStartDate} to ${scheduleEndDate})` : '(Legacy: no date range)');
 }
 
 // Load flights from database (7일 반복 스케줄)
@@ -379,7 +510,9 @@ function loadTodaysFlights() {
                     DEST: row[3],
                     CFL: row[4],
                     EOBT: row[5],
-                    DAY_OF_WEEK: row[6]
+                    DAY_OF_WEEK: row[6],
+                    schedule_start_date: row[8],
+                    schedule_end_date: row[9]
                 });
             });
 
@@ -1673,7 +1806,7 @@ function setupEventListeners() {
     }
 }
 
-function processExcelFile(file) {
+function processExcelFile(file, scheduleStartDate = null, scheduleEndDate = null) {
     const reader = new FileReader();
     reader.onload = function (e) {
         try {
@@ -1682,30 +1815,27 @@ function processExcelFile(file) {
             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
+            if (!jsonData || jsonData.length === 0) {
+                showToast('❌ Excel 파일이 비어 있습니다', 'error');
+                return;
+            }
+
             console.log('Excel data loaded:', jsonData.length, 'rows');
             excelFlightData = jsonData;
 
-            // Save to database
-            saveExcelDataToDb(jsonData);
+            // Save to database with schedule dates
+            saveExcelDataToDb(jsonData, scheduleStartDate, scheduleEndDate);
 
             loadFlightsForDate(); // Use new date-based loading
 
             // Show success message
-            const statusDiv = document.getElementById('upload-status');
-            if (statusDiv) {
-                statusDiv.textContent = `✅ ${jsonData.length} flights loaded and saved`;
-                statusDiv.style.color = '#00ff00';
-                setTimeout(() => {
-                    statusDiv.textContent = '';
-                }, 3000);
-            }
+            const dateRange = scheduleStartDate && scheduleEndDate
+                ? ` (${scheduleStartDate} ~ ${scheduleEndDate})`
+                : '';
+            showToast(`✅ ${jsonData.length}개 항공편이 업로드되었습니다${dateRange}`, 'success');
         } catch (error) {
             console.error('Error reading Excel file:', error);
-            const statusDiv = document.getElementById('upload-status');
-            if (statusDiv) {
-                statusDiv.textContent = '❌ Error processing file';
-                statusDiv.style.color = '#ff4444';
-            }
+            showToast('❌ Excel 파일 처리 중 오류가 발생했습니다', 'error');
         }
     };
     reader.readAsArrayBuffer(file);
@@ -1729,6 +1859,7 @@ function loadFlightsForDate(targetDate = selectedDate) {
     // Convert JS to Excel format: Sunday 0->7, others stay same
     const jsDayOfWeek = targetDate.getDay();
     const targetDayOfWeek = jsDayOfWeek === 0 ? 7 : jsDayOfWeek; // Convert to Excel format (1-7)
+    const targetDateStr = targetDate.toISOString().split('T')[0];
 
     const mockFlights = [];
 
@@ -1740,8 +1871,15 @@ function loadFlightsForDate(targetDate = selectedDate) {
 
     console.log(`Filtered flights for day of week ${targetDayOfWeek} (${targetDate.toDateString()}): ${todaysFlights.length} flights`);
 
-    // All flights for this day of week are included in the operational period
-    const filteredFlights = todaysFlights;
+    // Filter by schedule date range if available (from database query)
+    const filteredFlights = todaysFlights.filter(row => {
+        // If the flight has schedule dates (loaded from database with date constraints)
+        if (row.schedule_start_date && row.schedule_end_date) {
+            return targetDateStr >= row.schedule_start_date && targetDateStr <= row.schedule_end_date;
+        }
+        // Legacy flights without schedule dates are always included
+        return true;
+    });
 
     console.log(`Processing ${filteredFlights.length} flights for operational day...`);
 
