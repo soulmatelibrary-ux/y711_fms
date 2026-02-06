@@ -50,8 +50,8 @@ body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background-color: var(--bg-color);
     color: var(--text-primary);
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
+    overflow-x: hidden;
     width: 100vw;
     display: flex;
     flex-direction: column;
@@ -60,7 +60,7 @@ body {
 #app {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    min-height: 100vh;
     width: 100%;
 }
 
@@ -172,7 +172,8 @@ body {
 .app-body {
     display: flex;
     flex: 1;
-    overflow: hidden;
+    overflow: auto;
+    min-height: 0;
 }
 
 /* Left Panel (Sidebar) */
@@ -1885,11 +1886,28 @@ body {
 
 /* Mobile XS (≤480px) - Aggressive header layout */
 @media (max-width: 480px) {
+    body {
+        height: auto;
+        min-height: 100vh;
+        overflow-y: auto;
+    }
+
+    #app {
+        height: auto;
+        min-height: 100vh;
+    }
+
+    .app-body {
+        overflow: visible;
+        flex-direction: column;
+    }
+
     .app-header {
         padding: 0.75rem 1rem;
         height: auto;
-        min-height: 60px;
+        min-height: auto;
         flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
     .header-left {
@@ -2363,14 +2381,17 @@ body {
 @media (max-width: 768px) {
     .left-panel {
         width: 100%;
-        max-height: 50vh;
+        height: auto;
+        max-height: none;
         border-right: none;
         border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
     }
 
     .flight-queue-list {
-        flex: 0.6;
-        max-height: 250px;
+        flex: 0;
+        max-height: 200px;
+        min-height: 150px;
     }
 
     .panel-footer {
@@ -2381,29 +2402,36 @@ body {
     .panel-footer .btn {
         padding: 0.75rem 1rem;
         font-size: 1rem;
+        width: 100%;
     }
 }
 
 @media (min-width: 769px) {
     .left-panel {
         width: var(--sidebar-width);
+        height: auto;
         border-right: 1px solid var(--border-color);
+        flex-shrink: 0;
     }
 }
 
 /* Right panel responsiveness */
 @media (max-width: 768px) {
     .right-panel {
-        flex: 1;
-        overflow-y: auto;
+        width: 100%;
+        flex: 0;
+        height: auto;
+        overflow: visible;
     }
 
     .timeline-section {
         min-height: 200px;
+        height: auto;
     }
 
     .map-section {
         min-height: 300px;
+        height: auto;
     }
 
     .card-header.compact {
@@ -2419,19 +2447,34 @@ body {
     .card-header.compact > div {
         width: 100%;
     }
+
+    .map-container {
+        height: 300px;
+    }
+
+    .timeline-scroll-area {
+        height: 150px;
+    }
 }
 
 /* App body layout on mobile */
 @media (max-width: 768px) {
     .app-body {
         flex-direction: column;
-        overflow: hidden;
+        overflow: visible;
+        height: auto;
     }
 
-    .left-panel,
+    .left-panel {
+        flex: 0;
+        height: auto;
+        overflow: visible;
+    }
+
     .right-panel {
-        flex: 1;
-        overflow: hidden;
+        flex: 0;
+        height: auto;
+        overflow: visible;
     }
 }
 
@@ -2439,13 +2482,19 @@ body {
 @media (min-width: 769px) {
     .app-body {
         flex-direction: row;
+        height: 100%;
+        overflow: hidden;
     }
 
     .left-panel {
         flex-shrink: 0;
+        height: 100%;
+        overflow: hidden;
     }
 
     .right-panel {
         flex: 1;
+        height: 100%;
+        overflow: hidden;
     }
 }
