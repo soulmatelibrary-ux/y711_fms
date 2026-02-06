@@ -1109,7 +1109,8 @@ body {
 
 /* Settings 모달 전용 스타일 */
 #settings-modal .modal-content {
-    width: 600px;
+    width: 80vw;
+    max-width: 700px;
     max-height: 80vh;
 }
 
@@ -2341,7 +2342,8 @@ body {
     }
 
     #settings-modal .modal-content {
-        width: 600px;
+        width: 80vw;
+        max-width: 700px;
         max-height: 80vh;
     }
 
