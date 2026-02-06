@@ -715,6 +715,8 @@
                 const file = e.target.files[0];
                 if (file) {
                     pendingExcelFile = file;
+                    // 날짜 초기화: 시작일은 오늘, 종료일은 6개월 후
+                    window.setSchedulePeriod(6);
                     // 스케줄 기간 모달 표시
                     document.getElementById('schedule-period-modal')?.classList.remove('hidden');
                     // 파일 인풋 리셋
