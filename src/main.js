@@ -2194,17 +2194,17 @@ function initFlightMap() {
             const apt = airportDatabase[code];
             const color = apt.color || '#fff';
 
-            // Draw a marker (circle) - 지상 레벨에 배치
-            const circle = createSvgEl('circle', { cx: x, cy: 800, r: 8, fill: color, stroke: '#fff', 'stroke-width': 2 });
+            // Draw a marker (circle) - 지상 레벨에 배치 (위로 올림: 800 → 750)
+            const circle = createSvgEl('circle', { cx: x, cy: 750, r: 8, fill: color, stroke: '#fff', 'stroke-width': 2 });
             gAirports.appendChild(circle);
 
             // Draw the airport name (공항명) above circle
-            const nameTxt = createSvgEl('text', { x: x, y: 785, 'text-anchor': 'middle', fill: color, 'font-size': 14, 'font-weight': 'bold', 'style': 'text-shadow: 0 0 4px #000;' });
+            const nameTxt = createSvgEl('text', { x: x, y: 735, 'text-anchor': 'middle', fill: color, 'font-size': 14, 'font-weight': 'bold', 'style': 'text-shadow: 0 0 4px #000;' });
             nameTxt.textContent = apt.name;
             gAirports.appendChild(nameTxt);
 
             // Draw the airport code text below circle (화면 하단)
-            const txt = createSvgEl('text', { x: x, y: 825, 'text-anchor': 'middle', fill: '#aaa', 'font-size': 11, 'font-weight': 'normal', 'style': 'text-shadow: 0 0 4px #000;' });
+            const txt = createSvgEl('text', { x: x, y: 775, 'text-anchor': 'middle', fill: '#aaa', 'font-size': 11, 'font-weight': 'normal', 'style': 'text-shadow: 0 0 4px #000;' });
             txt.textContent = code;
             gAirports.appendChild(txt);
         });
@@ -2272,6 +2272,43 @@ function initFlightMap() {
             metaText.textContent = `${code} → ${apt.mergePoint}`;
             gAirportCallouts.appendChild(metaText);
         });
+    }
+
+    // ============================================
+    // Dynamic SVG Height Adjustment
+    // ============================================
+    // SVG를 높이 변화에 동적으로 반응하게 함
+    const mapContainer = document.querySelector('.map-container');
+    if (mapContainer && els.mapSvg) {
+        // 초기 viewBox 값
+        const baseViewBox = '0 0 1600 850';
+        const baseDimensions = { width: 1600, height: 850 };
+
+        // ResizeObserver로 컨테이너 높이 변화 감지
+        const resizeObserver = new ResizeObserver(() => {
+            const containerHeight = mapContainer.clientHeight;
+            const containerWidth = mapContainer.clientWidth;
+
+            if (containerHeight > 0 && containerWidth > 0) {
+                // 현재 높이에 따라 viewBox의 높이를 동적으로 조정
+                // 컨테이너의 aspect ratio에 따라 viewBox도 조정
+                const aspectRatio = containerWidth / containerHeight;
+                const newHeight = Math.round(baseDimensions.width / aspectRatio);
+
+                // viewBox 업데이트: 폭은 유지, 높이는 동적 조정
+                const newViewBox = `0 0 ${baseDimensions.width} ${newHeight}`;
+                els.mapSvg.setAttribute('viewBox', newViewBox);
+
+                // console.log(`SVG viewBox updated: ${newViewBox} (container: ${containerWidth}x${containerHeight})`);
+            }
+        });
+
+        // 관찰 시작
+        resizeObserver.observe(mapContainer);
+
+        // 디버그용으로 window에 노출
+        if (!window.fmsDebug) window.fmsDebug = {};
+        window.fmsDebug.svgResizeObserver = resizeObserver;
     }
 }
 
