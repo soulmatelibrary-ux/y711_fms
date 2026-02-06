@@ -1727,3 +1727,725 @@ body {
 .toast {
     pointer-events: auto;
 }
+
+/* =========================================
+   RESPONSIVE DESIGN - PHASE 1: Touch Targets & Font Sizes
+   ========================================= */
+
+/* Mobile (≤768px) - Touch target optimization */
+@media (max-width: 768px) {
+    /* Base button sizing for touch targets (44×44px minimum) */
+    .btn {
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .btn-primary,
+    .btn-secondary,
+    .btn-danger {
+        padding: 0.75rem 1.2rem;
+    }
+
+    /* Navigation buttons */
+    .nav-btn {
+        padding: 0.75rem 1.2rem;
+        font-size: 1rem;
+        min-height: 44px;
+    }
+
+    /* Excel upload buttons */
+    .excel-btn {
+        padding: 0.75rem 1rem;
+        font-size: 0.95rem;
+        min-height: 40px;
+    }
+
+    /* Control buttons (play, pause, etc) */
+    .ctrl-btn {
+        padding: 0.6rem;
+        min-width: 44px;
+        min-height: 44px;
+        font-size: 1.1rem;
+    }
+
+    .ctrl-btn.main {
+        min-width: 48px;
+        min-height: 48px;
+    }
+
+    /* Small buttons */
+    .btn-sm {
+        padding: 0.5rem 0.8rem;
+        font-size: 0.9rem;
+        min-height: 40px;
+    }
+
+    /* Icon buttons */
+    .btn-icon {
+        padding: 0.6rem;
+        min-width: 40px;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Date/Time inputs */
+    input[type="date"],
+    input[type="time"],
+    input[type="text"],
+    input[type="number"],
+    select {
+        padding: 0.75rem 0.8rem;
+        font-size: 1rem;
+        min-height: 44px;
+    }
+
+    /* Separation control buttons */
+    .btn-sep {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.9rem;
+        min-height: 44px;
+    }
+
+    /* Speed select dropdown */
+    .speed-select {
+        padding: 0.6rem 0.8rem;
+        font-size: 1rem;
+        min-height: 44px;
+    }
+
+    /* Form group spacing */
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        font-size: 1rem;
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* Tablet (769px - 1024px) - Balanced sizing */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .btn {
+        padding: 0.65rem 1rem;
+        font-size: 0.95rem;
+        min-height: 40px;
+    }
+
+    .nav-btn {
+        padding: 0.65rem 1rem;
+        font-size: 0.95rem;
+        min-height: 40px;
+    }
+
+    .ctrl-btn {
+        padding: 0.55rem;
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    input[type="date"],
+    input[type="time"],
+    select {
+        padding: 0.65rem 0.8rem;
+        font-size: 0.95rem;
+        min-height: 40px;
+    }
+}
+
+/* Desktop (>1024px) - Original sizing */
+@media (min-width: 1025px) {
+    .btn {
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+        min-height: 36px;
+    }
+
+    .nav-btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .ctrl-btn {
+        padding: 0.4rem;
+        min-width: 36px;
+        min-height: 36px;
+    }
+}
+
+/* =========================================
+   RESPONSIVE DESIGN - PHASE 2: Header Responsiveness
+   ========================================= */
+
+/* Mobile XS (≤480px) - Aggressive header layout */
+@media (max-width: 480px) {
+    .app-header {
+        padding: 0.75rem 1rem;
+        height: auto;
+        min-height: 60px;
+        flex-wrap: wrap;
+    }
+
+    .header-left {
+        width: 100%;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.5rem;
+    }
+
+    .header-left h1 {
+        font-size: 1rem;
+        order: 1;
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+
+    .header-left h1 span {
+        display: none;
+    }
+
+    .top-nav {
+        order: 2;
+        gap: 0.25rem;
+        width: auto;
+    }
+
+    .top-nav .nav-btn {
+        padding: 0.6rem 0.8rem;
+        font-size: 0.9rem;
+    }
+
+    .excel-upload-section {
+        order: 3;
+        width: 100%;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .excel-upload-section .btn {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        font-size: 0.95rem;
+    }
+
+    .header-right {
+        width: 100%;
+        order: 4;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.5rem;
+    }
+
+    .header-right .user-profile {
+        display: none;
+    }
+
+    .header-right .btn {
+        padding: 0.75rem 1rem;
+        font-size: 0.95rem;
+    }
+}
+
+/* Mobile S (481px - 568px) - 1 column layout */
+@media (min-width: 481px) and (max-width: 568px) {
+    .app-header {
+        flex-wrap: wrap;
+        padding: 0.75rem 1rem;
+        height: auto;
+        min-height: 60px;
+    }
+
+    .header-left {
+        width: 100%;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.5rem;
+    }
+
+    .header-left h1 {
+        font-size: 1.1rem;
+        order: 1;
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+
+    .header-left h1 span {
+        display: none;
+    }
+
+    .top-nav {
+        order: 2;
+        gap: 0.5rem;
+    }
+
+    .excel-upload-section {
+        order: 3;
+        width: 100%;
+        flex-direction: row;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .excel-upload-section .btn {
+        flex: 1;
+        padding: 0.75rem 0.8rem;
+        font-size: 0.85rem;
+    }
+
+    .header-right {
+        order: 4;
+        width: 100%;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .header-right .user-profile {
+        display: none;
+    }
+}
+
+/* Tablet (569px - 768px) - Partial single line */
+@media (min-width: 569px) and (max-width: 768px) {
+    .app-header {
+        flex-wrap: wrap;
+        padding: 0.75rem 1rem;
+    }
+
+    .header-left {
+        gap: 1rem;
+        flex: 1;
+    }
+
+    .header-left h1 {
+        font-size: 1.15rem;
+    }
+
+    .header-left h1 span {
+        display: inline;
+        font-size: 0.85em;
+    }
+
+    .excel-upload-section {
+        flex-direction: row;
+        gap: 0.5rem;
+        width: auto;
+    }
+
+    .excel-upload-section .btn {
+        padding: 0.65rem 0.8rem;
+        font-size: 0.85rem;
+        white-space: nowrap;
+    }
+
+    .header-right {
+        gap: 0.5rem;
+    }
+
+    .header-right .user-profile {
+        display: flex;
+        font-size: 0.85rem;
+    }
+}
+
+/* Small Laptop (769px - 1024px) - 2 column header */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .app-header {
+        padding: 0 1.25rem;
+    }
+
+    .header-left {
+        gap: 1.5rem;
+    }
+
+    .header-left h1 {
+        font-size: 1.15rem;
+    }
+
+    .excel-upload-section {
+        gap: 0.75rem;
+    }
+
+    .excel-upload-section .btn {
+        padding: 0.65rem 0.9rem;
+        font-size: 0.85rem;
+    }
+
+    .header-right {
+        gap: 1rem;
+    }
+}
+
+/* Desktop (>1024px) - Original spacing */
+@media (min-width: 1025px) {
+    .app-header {
+        padding: 0 1.5rem;
+    }
+
+    .header-left {
+        gap: 2rem;
+    }
+
+    .header-left h1 {
+        font-size: 1.25rem;
+    }
+
+    .header-left h1 span {
+        display: inline;
+    }
+
+    .excel-upload-section {
+        gap: 0.75rem;
+    }
+
+    .header-right {
+        gap: 1rem;
+    }
+}
+
+/* =========================================
+   RESPONSIVE DESIGN - PHASE 3: Modal & Controls
+   ========================================= */
+
+/* Mobile (≤768px) - Modal button stacking */
+@media (max-width: 768px) {
+    /* Modal footer buttons stack vertically */
+    .modal-footer {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .modal-footer .btn {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+    }
+
+    /* Modal content sizing */
+    .modal-content {
+        width: 90vw;
+        max-width: 400px;
+    }
+
+    #settings-modal .modal-content {
+        width: 90vw;
+        max-width: 500px;
+    }
+
+    /* Date control responsive layout */
+    .schedule-date-section,
+    [style*="display: flex"][style*="gap: 12px"] {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    input[type="date"] {
+        width: 100%;
+        max-width: 200px;
+    }
+
+    /* Arrow buttons improvement */
+    #prev-day-btn,
+    #next-day-btn {
+        padding: 0.6rem 0.8rem;
+        font-size: 1.1rem;
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Merge control section */
+    .merge-control-section {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    #merge-point-select {
+        width: 100%;
+        max-width: none;
+    }
+
+    #reset-ctot-btn {
+        width: 100%;
+    }
+
+    /* Today button */
+    #today-btn {
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+    }
+
+    /* Full width buttons */
+    .full-width {
+        width: 100%;
+    }
+
+    /* Panel footer button */
+    #calc-ctot-btn {
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+        min-height: 44px;
+    }
+
+    /* Map controls */
+    .sim-controls-compact {
+        gap: 0.5rem;
+    }
+
+    #map-fullscreen-btn {
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+        white-space: nowrap;
+    }
+}
+
+/* Tablet (769px - 1024px) - Optimized layout */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .modal-footer {
+        flex-direction: row;
+    }
+
+    .modal-footer .btn {
+        flex: 1;
+        padding: 0.65rem 1rem;
+        font-size: 0.95rem;
+    }
+
+    input[type="date"] {
+        width: 150px;
+    }
+
+    .sim-controls-compact {
+        gap: 0.5rem;
+    }
+
+    .sim-controls-compact .ctrl-btn {
+        padding: 0.5rem;
+        min-width: 40px;
+        min-height: 40px;
+    }
+}
+
+/* Desktop (>1024px) - Original layout */
+@media (min-width: 1025px) {
+    .modal-footer {
+        flex-direction: row;
+        justify-content: flex-end;
+        gap: 0.75rem;
+    }
+
+    .modal-footer .btn {
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    input[type="date"] {
+        width: auto;
+    }
+
+    .sim-controls-compact {
+        gap: 0.75rem;
+    }
+
+    .sim-controls-compact .ctrl-btn {
+        padding: 0.4rem;
+        min-width: auto;
+        min-height: auto;
+    }
+}
+
+/* =========================================
+   RESPONSIVE DESIGN - PHASE 4: Consistent Spacing System
+   ========================================= */
+
+/* Design system variables for consistent spacing */
+:root {
+    /* Button sizing by breakpoint */
+    --btn-height-mobile: 44px;
+    --btn-height-tablet: 40px;
+    --btn-height-desktop: 36px;
+
+    /* Button gaps (between button groups) */
+    --gap-buttons-tight: 4px;
+    --gap-buttons-normal: 8px;
+    --gap-buttons-loose: 16px;
+    --gap-buttons-mobile: 6px;
+
+    /* Padding standards */
+    --padding-btn-mobile: 0.75rem 1rem;
+    --padding-btn-desktop: 0.6rem 1rem;
+
+    /* Header gaps */
+    --gap-header-mobile: 0.5rem;
+    --gap-header-tablet: 0.75rem;
+    --gap-header-desktop: 1rem;
+}
+
+/* Apply spacing system on mobile */
+@media (max-width: 768px) {
+    /* Button group gaps */
+    .top-nav {
+        gap: var(--gap-buttons-mobile);
+    }
+
+    .excel-upload-section {
+        gap: var(--gap-buttons-mobile);
+    }
+
+    .header-right {
+        gap: var(--gap-header-mobile);
+    }
+
+    /* Modal spacing */
+    .modal-footer {
+        gap: var(--gap-buttons-normal);
+    }
+
+    /* Control groups */
+    .sim-controls-compact {
+        gap: var(--gap-buttons-mobile);
+    }
+
+    /* Input groups */
+    input[type="date"] {
+        margin: 0 var(--gap-buttons-tight);
+    }
+}
+
+/* Apply spacing system on tablet */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .top-nav {
+        gap: var(--gap-buttons-normal);
+    }
+
+    .excel-upload-section {
+        gap: var(--gap-buttons-normal);
+    }
+
+    .header-right {
+        gap: var(--gap-header-tablet);
+    }
+
+    .sim-controls-compact {
+        gap: var(--gap-buttons-normal);
+    }
+}
+
+/* Apply spacing system on desktop */
+@media (min-width: 1025px) {
+    .top-nav {
+        gap: var(--gap-buttons-normal);
+    }
+
+    .excel-upload-section {
+        gap: var(--gap-buttons-normal);
+    }
+
+    .header-right {
+        gap: var(--gap-header-desktop);
+    }
+
+    .sim-controls-compact {
+        gap: var(--gap-buttons-loose);
+    }
+}
+
+/* =========================================
+   RESPONSIVE DESIGN - Layout Optimization
+   ========================================= */
+
+/* Left panel responsiveness */
+@media (max-width: 768px) {
+    .left-panel {
+        width: 100%;
+        max-height: 50vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .flight-queue-list {
+        flex: 0.6;
+        max-height: 250px;
+    }
+
+    .panel-footer {
+        flex: 0;
+        padding: 0.75rem;
+    }
+
+    .panel-footer .btn {
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+    }
+}
+
+@media (min-width: 769px) {
+    .left-panel {
+        width: var(--sidebar-width);
+        border-right: 1px solid var(--border-color);
+    }
+}
+
+/* Right panel responsiveness */
+@media (max-width: 768px) {
+    .right-panel {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .timeline-section {
+        min-height: 200px;
+    }
+
+    .map-section {
+        min-height: 300px;
+    }
+
+    .card-header.compact {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .card-header.compact h2 {
+        font-size: 1rem;
+        width: 100%;
+    }
+
+    .card-header.compact > div {
+        width: 100%;
+    }
+}
+
+/* App body layout on mobile */
+@media (max-width: 768px) {
+    .app-body {
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .left-panel,
+    .right-panel {
+        flex: 1;
+        overflow: hidden;
+    }
+}
+
+/* Maintain original layout on larger screens */
+@media (min-width: 769px) {
+    .app-body {
+        flex-direction: row;
+    }
+
+    .left-panel {
+        flex-shrink: 0;
+    }
+
+    .right-panel {
+        flex: 1;
+    }
+}
