@@ -666,9 +666,16 @@ body {
 }
 
 .panel-footer {
+    flex: 1;
+    /* Live Route Map과 같은 높이로 확장 */
     padding: 1rem;
     border-top: 1px solid var(--border-color);
     background: rgba(22, 27, 34, 0.8);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    /* 버튼을 상단에 고정 */
+    justify-content: flex-start;
 }
 
 .btn {
