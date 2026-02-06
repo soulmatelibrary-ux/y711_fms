@@ -1113,6 +1113,12 @@ body {
     max-height: 80vh;
 }
 
+/* Password 모달 */
+#change-password-modal .modal-content {
+    width: 450px;
+    max-height: 70vh;
+}
+
 
 .node-inputs {
     display: flex;
@@ -2149,11 +2155,19 @@ body {
     .modal-content {
         width: 90vw;
         max-width: 400px;
+        padding: 1.5rem;
     }
 
     #settings-modal .modal-content {
         width: 90vw;
-        max-width: 500px;
+        max-width: 400px;
+        padding: 1.5rem;
+    }
+
+    #change-password-modal .modal-content {
+        width: 90vw;
+        max-width: 380px;
+        padding: 1.5rem;
     }
 
     /* Date control responsive layout */
@@ -2234,6 +2248,21 @@ body {
         font-size: 0.95rem;
     }
 
+    .modal-content {
+        width: 90vw;
+        max-width: 500px;
+    }
+
+    #settings-modal .modal-content {
+        width: 90vw;
+        max-width: 550px;
+    }
+
+    #change-password-modal .modal-content {
+        width: 90vw;
+        max-width: 450px;
+    }
+
     input[type="date"] {
         width: 150px;
     }
@@ -2260,6 +2289,21 @@ body {
     .modal-footer .btn {
         padding: 0.6rem 1rem;
         font-size: 0.9rem;
+    }
+
+    .modal-content {
+        width: 400px;
+        max-height: 85vh;
+    }
+
+    #settings-modal .modal-content {
+        width: 600px;
+        max-height: 80vh;
+    }
+
+    #change-password-modal .modal-content {
+        width: 450px;
+        max-height: 70vh;
     }
 
     input[type="date"] {
