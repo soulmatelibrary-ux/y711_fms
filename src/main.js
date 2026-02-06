@@ -425,6 +425,68 @@ function formatDateRange(startDate, endDate) {
     }
 }
 
+// ============================================
+// EXCEL DATA VALIDATION
+// ============================================
+
+// Validate Excel data structure and content
+function validateExcelData(jsonData) {
+    const requiredColumns = ['CALLSIGN', 'DEPT', 'DEST', 'CFL', 'EOBT', 'DAY_OF_WEEK'];
+
+    // Check if data exists
+    if (!jsonData || jsonData.length === 0) {
+        return { valid: false, error: 'Excel 파일이 비어 있습니다' };
+    }
+
+    // Check required columns
+    const firstRow = jsonData[0];
+    const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+    if (missingColumns.length > 0) {
+        return { valid: false, error: `필수 컬럼 누락: ${missingColumns.join(', ')}` };
+    }
+
+    // Validate data in each row
+    for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+
+        // Validate CALLSIGN (not empty, max 10 chars)
+        if (!row.CALLSIGN || row.CALLSIGN.toString().trim().length === 0) {
+            return { valid: false, error: `${i + 1}행: CALLSIGN이 비어있습니다` };
+        }
+        if (row.CALLSIGN.toString().length > 10) {
+            return { valid: false, error: `${i + 1}행: CALLSIGN이 너무 깁니다 (최대 10자)` };
+        }
+
+        // Validate DEPT (airport code)
+        if (!row.DEPT || row.DEPT.toString().trim().length === 0) {
+            return { valid: false, error: `${i + 1}행: DEPT(출발 공항)이 비어있습니다` };
+        }
+
+        // Validate DEST (airport code)
+        if (!row.DEST || row.DEST.toString().trim().length === 0) {
+            return { valid: false, error: `${i + 1}행: DEST(도착 공항)이 비어있습니다` };
+        }
+
+        // Validate CFL (flight level)
+        if (!row.CFL || !row.CFL.toString().match(/^FL\d{2,3}$/)) {
+            return { valid: false, error: `${i + 1}행: CFL 형식이 잘못되었습니다 (예: FL280)` };
+        }
+
+        // Validate EOBT (time format HHMM)
+        if (!row.EOBT || !row.EOBT.toString().match(/^\d{4}$/)) {
+            return { valid: false, error: `${i + 1}행: EOBT 형식이 잘못되었습니다 (예: 0630)` };
+        }
+
+        // Validate DAY_OF_WEEK (1-7)
+        const dow = parseInt(row.DAY_OF_WEEK);
+        if (isNaN(dow) || dow < 1 || dow > 7) {
+            return { valid: false, error: `${i + 1}행: DAY_OF_WEEK가 유효하지 않습니다 (1-7 필수)` };
+        }
+    }
+
+    return { valid: true, rowCount: jsonData.length };
+}
+
 // Save Excel data to SQLite database
 function saveExcelDataToDb(excelData, scheduleStartDate = null, scheduleEndDate = null) {
     if (!db) return;
@@ -441,7 +503,7 @@ function saveExcelDataToDb(excelData, scheduleStartDate = null, scheduleEndDate 
             AND schedule_end_date IS NOT NULL
             AND schedule_start_date <= ?
             AND schedule_end_date >= ?
-        `, [scheduleEndDate, scheduleStartDate]);
+        `, [scheduleStartDate, scheduleEndDate]);
     } else {
         // Legacy mode: no schedule dates provided, delete all
         db.run('DELETE FROM flights');
@@ -1815,12 +1877,15 @@ function processExcelFile(file, scheduleStartDate = null, scheduleEndDate = null
             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
-            if (!jsonData || jsonData.length === 0) {
-                showToast('❌ Excel 파일이 비어 있습니다', 'error');
+            // Validate Excel data structure and content
+            const validation = validateExcelData(jsonData);
+            if (!validation.valid) {
+                showToast(`❌ ${validation.error}`, 'error');
+                console.error('Excel validation failed:', validation.error);
                 return;
             }
 
-            console.log('Excel data loaded:', jsonData.length, 'rows');
+            console.log('Excel data loaded and validated:', validation.rowCount, 'rows');
             excelFlightData = jsonData;
 
             // Save to database with schedule dates
