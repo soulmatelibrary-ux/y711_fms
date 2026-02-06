@@ -1743,62 +1743,63 @@ body {
 @media (max-width: 768px) {
     /* Base button sizing for touch targets (44×44px minimum) */
     .btn {
-        padding: 0.75rem 1rem;
-        font-size: 1rem;
-        min-height: 44px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+        padding: 0.75rem 1rem !important;
+        font-size: 1rem !important;
+        min-height: 44px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     .btn-primary,
     .btn-secondary,
     .btn-danger {
-        padding: 0.75rem 1.2rem;
+        padding: 0.75rem 1.2rem !important;
     }
 
     /* Navigation buttons */
     .nav-btn {
-        padding: 0.75rem 1.2rem;
-        font-size: 1rem;
-        min-height: 44px;
+        padding: 0.75rem 1.2rem !important;
+        font-size: 1rem !important;
+        min-height: 44px !important;
     }
 
     /* Excel upload buttons */
     .excel-btn {
-        padding: 0.75rem 1rem;
-        font-size: 0.95rem;
-        min-height: 40px;
+        padding: 0.75rem 1rem !important;
+        font-size: 0.95rem !important;
+        min-height: 40px !important;
+        width: 100% !important;
     }
 
     /* Control buttons (play, pause, etc) */
     .ctrl-btn {
-        padding: 0.6rem;
-        min-width: 44px;
-        min-height: 44px;
-        font-size: 1.1rem;
+        padding: 0.6rem !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        font-size: 1.1rem !important;
     }
 
     .ctrl-btn.main {
-        min-width: 48px;
-        min-height: 48px;
+        min-width: 48px !important;
+        min-height: 48px !important;
     }
 
     /* Small buttons */
     .btn-sm {
-        padding: 0.5rem 0.8rem;
-        font-size: 0.9rem;
-        min-height: 40px;
+        padding: 0.5rem 0.8rem !important;
+        font-size: 0.9rem !important;
+        min-height: 40px !important;
     }
 
     /* Icon buttons */
     .btn-icon {
-        padding: 0.6rem;
-        min-width: 40px;
-        min-height: 40px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+        padding: 0.6rem !important;
+        min-width: 40px !important;
+        min-height: 40px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     /* Date/Time inputs */
@@ -1807,23 +1808,56 @@ body {
     input[type="text"],
     input[type="number"],
     select {
-        padding: 0.75rem 0.8rem;
-        font-size: 1rem;
-        min-height: 44px;
+        padding: 0.75rem 0.8rem !important;
+        font-size: 1rem !important;
+        min-height: 44px !important;
+        width: 100% !important;
     }
 
     /* Separation control buttons */
     .btn-sep {
-        padding: 0.5rem 0.75rem;
-        font-size: 0.9rem;
-        min-height: 44px;
+        padding: 0.5rem 0.75rem !important;
+        font-size: 0.9rem !important;
+        min-height: 44px !important;
     }
 
     /* Speed select dropdown */
     .speed-select {
-        padding: 0.6rem 0.8rem;
-        font-size: 1rem;
-        min-height: 44px;
+        padding: 0.6rem 0.8rem !important;
+        font-size: 1rem !important;
+        min-height: 44px !important;
+    }
+
+    /* Force full width for buttons in header */
+    .header-right .btn {
+        width: auto !important;
+        min-height: 44px !important;
+        padding: 0.75rem 1rem !important;
+    }
+
+    /* Date navigation buttons */
+    #prev-day-btn,
+    #next-day-btn,
+    #today-btn {
+        padding: 0.75rem 0.8rem !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        font-size: 1rem !important;
+        background: transparent !important;
+    }
+
+    /* Merge point controls */
+    #reset-ctot-btn {
+        padding: 0.75rem 1rem !important;
+        min-height: 44px !important;
+        font-size: 1rem !important;
+        width: auto !important;
+    }
+
+    #merge-point-select {
+        padding: 0.75rem 0.8rem !important;
+        min-height: 44px !important;
+        font-size: 1rem !important;
     }
 
     /* Form group spacing */
@@ -1893,87 +1927,96 @@ body {
 /* Mobile XS (≤480px) - Aggressive header layout */
 @media (max-width: 480px) {
     body {
-        height: auto;
-        min-height: 100vh;
-        overflow-y: auto;
+        height: auto !important;
+        min-height: 100vh !important;
+        overflow-y: auto !important;
     }
 
     #app {
-        height: auto;
-        min-height: 100vh;
+        height: auto !important;
+        min-height: 100vh !important;
     }
 
     .app-body {
-        overflow: visible;
-        flex-direction: column;
+        overflow: visible !important;
+        flex-direction: column !important;
     }
 
     .app-header {
-        padding: 0.75rem 1rem;
-        height: auto;
-        min-height: auto;
-        flex-wrap: wrap;
-        gap: 0.5rem;
+        padding: 0.75rem 1rem !important;
+        height: auto !important;
+        min-height: auto !important;
+        flex-wrap: wrap !important;
+        gap: 0.5rem !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
     }
 
     .header-left {
-        width: 100%;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        margin-bottom: 0.5rem;
+        width: 100% !important;
+        gap: 0.5rem !important;
+        flex-wrap: wrap !important;
+        margin-bottom: 0.5rem !important;
+        flex-direction: column !important;
     }
 
     .header-left h1 {
-        font-size: 1rem;
-        order: 1;
-        width: 100%;
-        margin-bottom: 0.5rem;
+        font-size: 1rem !important;
+        order: 1 !important;
+        width: 100% !important;
+        margin-bottom: 0.5rem !important;
     }
 
     .header-left h1 span {
-        display: none;
+        display: none !important;
     }
 
     .top-nav {
-        order: 2;
-        gap: 0.25rem;
-        width: auto;
+        order: 2 !important;
+        gap: 0.25rem !important;
+        width: 100% !important;
+        flex-wrap: wrap !important;
     }
 
     .top-nav .nav-btn {
-        padding: 0.6rem 0.8rem;
-        font-size: 0.9rem;
+        padding: 0.75rem 0.8rem !important;
+        font-size: 0.95rem !important;
+        min-height: 44px !important;
+        flex: 1 !important;
     }
 
     .excel-upload-section {
-        order: 3;
-        width: 100%;
-        flex-direction: column;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
+        order: 3 !important;
+        width: 100% !important;
+        flex-direction: column !important;
+        gap: 0.5rem !important;
+        margin-top: 0.5rem !important;
     }
 
     .excel-upload-section .btn {
-        width: 100%;
-        padding: 0.75rem 1rem;
-        font-size: 0.95rem;
+        width: 100% !important;
+        padding: 0.75rem 1rem !important;
+        font-size: 0.95rem !important;
     }
 
     .header-right {
-        width: 100%;
-        order: 4;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        margin-top: 0.5rem;
+        width: 100% !important;
+        order: 4 !important;
+        gap: 0.5rem !important;
+        flex-wrap: wrap !important;
+        margin-top: 0.5rem !important;
     }
 
     .header-right .user-profile {
-        display: none;
+        display: none !important;
     }
 
     .header-right .btn {
-        padding: 0.75rem 1rem;
-        font-size: 0.95rem;
+        padding: 0.75rem 1rem !important;
+        font-size: 0.95rem !important;
+        min-height: 44px !important;
+        flex: 1 !important;
+        width: auto !important;
     }
 }
 
