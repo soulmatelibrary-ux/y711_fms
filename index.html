@@ -756,6 +756,25 @@
                 updatePeriodSummary();
             };
 
+            // 📌 날짜 범위 포맷팅 함수
+            function formatDateRange(startStr, endStr) {
+                if (!startStr || !endStr) return '기간을 선택하세요';
+
+                const start = new Date(startStr);
+                const end = new Date(endStr);
+                const diffTime = Math.abs(end - start);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                const diffMonths = Math.round(diffDays / 30);
+
+                let periodText = '';
+                if (diffMonths === 1) periodText = '약 1개월';
+                else if (diffMonths < 12) periodText = `약 ${diffMonths}개월`;
+                else if (diffMonths === 12) periodText = '약 1년';
+                else periodText = `약 ${(diffMonths / 12).toFixed(1)}년`;
+
+                return `${startStr} ~ ${endStr} (${periodText})`;
+            }
+
             // 기간 요약 업데이트
             window.updatePeriodSummary = function() {
                 const startDate = document.getElementById('schedule-start-date').value;

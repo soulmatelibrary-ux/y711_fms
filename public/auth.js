@@ -2,13 +2,16 @@
 // Environment-based authentication with password hashing
 // Note: This is client-side auth. For production, implement server-side JWT validation.
 
-// Default credentials are loaded from environment variables (.env)
-// NEVER hardcode credentials in source code
+// Default credentials (환경 변수는 빌드 타임에 주입)
+// 브라우저 환경에서는 process.env 사용 불가능하므로 기본값 사용
 const DEFAULT_USER = {
-    username: process.env.DEFAULT_ADMIN_USERNAME || 'admin',
-    // Password is NOT hardcoded - must be set in .env file
-    // In production, use backend API for authentication instead of client-side
+    username: 'admin',
+    // Password: .env에서 설정 (개발환경: DevPass123!)
+    // NEVER hardcode credentials in production
 };
+
+// 📌 전역 변수: 함수 선언 전에 선언해야 함
+let sessionTimeoutCheckInterval = null;
 
 // SHA-256 해싱 함수 (또는 간단한 해시)
 async function hashPassword(password) {
@@ -70,8 +73,9 @@ async function login(username, password) {
             return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
         }
 
-        // 환경 변수에서 기본 비밀번호 로드
-        const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'DevPass123!';
+        // 기본 비밀번호 (개발환경: DevPass123!)
+        // 프로덕션에서는 백엔드 API를 통해 인증해야 함
+        const defaultPassword = 'DevPass123!';
 
         // localStorage에 저장된 비밀번호 해시 확인 (있으면 사용, 없으면 기본값 사용)
         const storedHash = localStorage.getItem('y711_password_hash');
@@ -107,7 +111,8 @@ async function login(username, password) {
 function completeLogin(username) {
     const sessionToken = generateSessionToken();
     const now = new Date();
-    const sessionTimeout = (process.env.SESSION_TIMEOUT_MINUTES || 30) * 60 * 1000; // Convert to milliseconds
+    const SESSION_TIMEOUT_MINUTES = 30; // 30분 기본값
+    const sessionTimeout = SESSION_TIMEOUT_MINUTES * 60 * 1000; // Convert to milliseconds
     const expiresAt = new Date(now.getTime() + sessionTimeout);
 
     // 📌 사용자별 독립 시스템: user_id 저장 (username을 user_id로 사용)
@@ -241,9 +246,6 @@ function getCurrentUser() {
 // ========================================
 // Session Timeout Management
 // ========================================
-
-// 세션 타임아웃 체크 시작 (1분마다 확인)
-let sessionTimeoutCheckInterval = null;
 
 function startSessionTimeoutCheck() {
     // 이미 실행 중인 체크 중지
