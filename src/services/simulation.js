@@ -329,3 +329,53 @@ export function altitudeToY(altitudeFL, maxY = 200) {
     const yPercent = (altitudeFL - baseAltitude) / (maxAltitude - baseAltitude);
     return maxY - (yPercent * maxY * 0.5);
 }
+
+/**
+ * 공항 코드로 X 좌표 조회 (SVG 맵에서의 위치)
+ */
+export function getAirportX(airportCode) {
+    const coordinates = getAirportXCoordinates();
+    return coordinates[airportCode] || 100;
+}
+
+/**
+ * SVG 요소 생성
+ */
+export function createSvgEl(tag, attrs) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const k in attrs) {
+        el.setAttribute(k, attrs[k]);
+    }
+    return el;
+}
+
+/**
+ * 첫 번째 웨이포인트에서 특정 웨이포인트까지의 시간 계산 (분 단위, 초로 반환)
+ */
+export function getTimeToWaypoint(fromWaypoint, toWaypoint) {
+    const waypoints = [
+        { from: 'BULTI', to: 'MEKIL', duration: 2 },
+        { from: 'MEKIL', to: 'GONAX', duration: 2 },
+        { from: 'GONAX', to: 'BEDES', duration: 2 },
+        { from: 'BEDES', to: 'ELPOS', duration: 3 },
+        { from: 'ELPOS', to: 'MANGI', duration: 4 },
+        { from: 'MANGI', to: 'DALSU', duration: 2 },
+        { from: 'DALSU', to: 'NULDI', duration: 2 },
+        { from: 'NULDI', to: 'DOTOL', duration: 3 },
+        { from: 'DOTOL', to: 'RKPC', duration: 5 }
+    ];
+
+    let totalTime = 0;
+    let currentWaypoint = fromWaypoint;
+    let safety = 0;
+
+    while (currentWaypoint !== toWaypoint && safety < 20) {
+        const leg = waypoints.find(wp => wp.from === currentWaypoint);
+        if (!leg) break;
+        totalTime += leg.duration * 60; // 분을 초로 변환
+        currentWaypoint = leg.to;
+        safety++;
+    }
+
+    return totalTime;
+}

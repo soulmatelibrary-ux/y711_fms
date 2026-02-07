@@ -164,7 +164,10 @@ export class RightPanel {
         if (!svg) return;
 
         // Clear previous drawings
-        document.getElementById('aircraft-layer')?.innerHTML = '';
+        const aircraftLayer = document.getElementById('aircraft-layer');
+        if (aircraftLayer) {
+            aircraftLayer.innerHTML = '';
+        }
 
         // Draw flight paths and aircraft
         this.flights.forEach((flight, index) => {
