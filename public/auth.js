@@ -5,8 +5,8 @@
 // Default credentials (환경 변수는 빌드 타임에 주입)
 // 브라우저 환경에서는 process.env 사용 불가능하므로 기본값 사용
 const DEFAULT_USER = {
-    username: 'admin',
-    // Password: .env에서 설정 (개발환경: DevPass123!)
+    username: 'acc',
+    // Password: katc0012#$ (개발환경 기본값)
     // NEVER hardcode credentials in production
 };
 
@@ -73,9 +73,9 @@ async function login(username, password) {
             return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
         }
 
-        // 기본 비밀번호 (개발환경: DevPass123!)
+        // 기본 비밀번호 (개발환경: katc0012#$)
         // 프로덕션에서는 백엔드 API를 통해 인증해야 함
-        const defaultPassword = 'DevPass123!';
+        const defaultPassword = 'katc0012#$';
 
         // localStorage에 저장된 비밀번호 해시 확인 (있으면 사용, 없으면 기본값 사용)
         const storedHash = localStorage.getItem('y711_password_hash');
