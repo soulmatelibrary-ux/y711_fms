@@ -1,5 +1,30 @@
 console.log('main.js: Top-level execution start');
 
+// ========================================
+// Session Management & Authentication
+// ========================================
+
+// Check if user is authenticated and session is valid
+if (!isAuthenticated()) {
+    console.log('User not authenticated. Redirecting to login...');
+    window.location.href = '/login.html';
+} else {
+    console.log('User authenticated:', getCurrentUser());
+
+    // Initialize activity tracking on authenticated page
+    setupActivityTracking();
+
+    // Start session timeout checking
+    startSessionTimeoutCheck();
+
+    // Log session info
+    const sessionInfo = getSessionInfo();
+    if (sessionInfo) {
+        console.log(`Session expires in ${sessionInfo.minutesRemaining} minutes`);
+    }
+}
+
+// ========================================
 // SQLite Database
 let db = null;
 let sqlJs = null;

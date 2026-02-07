@@ -106,9 +106,20 @@ async function login(username, password) {
 // 로그인 완료 처리
 function completeLogin(username) {
     const sessionToken = generateSessionToken();
+    const now = new Date();
+    const sessionTimeout = (process.env.SESSION_TIMEOUT_MINUTES || 30) * 60 * 1000; // Convert to milliseconds
+    const expiresAt = new Date(now.getTime() + sessionTimeout);
+
     localStorage.setItem('y711_session', sessionToken);
     localStorage.setItem('y711_user', username);
-    localStorage.setItem('y711_login_time', new Date().toISOString());
+    localStorage.setItem('y711_login_time', now.toISOString());
+    localStorage.setItem('y711_session_expires_at', expiresAt.toISOString());
+
+    // Initialize activity timestamp for idle timeout tracking
+    localStorage.setItem('y711_last_activity', now.toISOString());
+
+    // Start session timeout check interval (every 1 minute)
+    startSessionTimeoutCheck();
 }
 
 // 비밀번호 변경
@@ -154,17 +165,46 @@ async function changePassword(currentPassword, newPassword) {
 
 // 로그아웃
 function logout() {
+    // Stop session timeout checking
+    stopSessionTimeoutCheck();
+
+    // Clear all session data
     localStorage.removeItem('y711_session');
     localStorage.removeItem('y711_user');
     localStorage.removeItem('y711_login_time');
+    localStorage.removeItem('y711_session_expires_at');
+    localStorage.removeItem('y711_last_activity');
+    localStorage.removeItem('y711_password_hash');
+
+    // Redirect to login page
     window.location.href = '/login.html';
 }
 
-// 세션 확인
+// 세션 확인 (만료 시간 체크 포함)
 function isAuthenticated() {
     const session = localStorage.getItem('y711_session');
     const user = localStorage.getItem('y711_user');
-    return !!(session && user);
+    const expiresAt = localStorage.getItem('y711_session_expires_at');
+
+    // 세션 기본 정보 없으면 false
+    if (!session || !user) {
+        return false;
+    }
+
+    // 세션 만료 시간 있으면 확인
+    if (expiresAt) {
+        const expirationTime = new Date(expiresAt);
+        const now = new Date();
+
+        if (now > expirationTime) {
+            // 세션 만료됨 - 자동 로그아웃
+            console.warn('Session expired. Logging out...');
+            logout();
+            return false;
+        }
+    }
+
+    return true;
 }
 
 // 인증 필요 페이지 보호
@@ -186,6 +226,98 @@ function generateSessionToken() {
 // 현재 사용자 정보 가져오기
 function getCurrentUser() {
     return localStorage.getItem('y711_user');
+}
+
+// ========================================
+// Session Timeout Management
+// ========================================
+
+// 세션 타임아웃 체크 시작 (1분마다 확인)
+let sessionTimeoutCheckInterval = null;
+
+function startSessionTimeoutCheck() {
+    // 이미 실행 중인 체크 중지
+    if (sessionTimeoutCheckInterval) {
+        clearInterval(sessionTimeoutCheckInterval);
+    }
+
+    // 1분마다 세션 만료 확인
+    sessionTimeoutCheckInterval = setInterval(() => {
+        if (!isAuthenticated()) {
+            // Session already expired and user logged out
+            clearInterval(sessionTimeoutCheckInterval);
+        }
+    }, 60000); // Check every 60 seconds
+}
+
+// 세션 타임아웃 체크 중지
+function stopSessionTimeoutCheck() {
+    if (sessionTimeoutCheckInterval) {
+        clearInterval(sessionTimeoutCheckInterval);
+        sessionTimeoutCheckInterval = null;
+    }
+}
+
+// 사용자 활동 감지 (마우스 움직임, 키보드, 클릭)
+function setupActivityTracking() {
+    const activityEvents = ['mousedown', 'keydown', 'scroll', 'click', 'touchstart'];
+
+    activityEvents.forEach(event => {
+        document.addEventListener(event, () => {
+            updateLastActivity();
+        }, { passive: true });
+    });
+}
+
+// 마지막 활동 시간 업데이트
+function updateLastActivity() {
+    if (isAuthenticated()) {
+        const now = new Date();
+        localStorage.setItem('y711_last_activity', now.toISOString());
+    }
+}
+
+// 세션 상태 정보 가져오기
+function getSessionInfo() {
+    const loginTime = localStorage.getItem('y711_login_time');
+    const expiresAt = localStorage.getItem('y711_session_expires_at');
+    const user = localStorage.getItem('y711_user');
+
+    if (!loginTime || !expiresAt) {
+        return null;
+    }
+
+    const now = new Date();
+    const expirationTime = new Date(expiresAt);
+    const timeRemaining = expirationTime - now;
+    const minutesRemaining = Math.floor(timeRemaining / 60000);
+
+    return {
+        user,
+        loginTime: new Date(loginTime),
+        expiresAt: expirationTime,
+        timeRemaining,
+        minutesRemaining,
+        isExpired: now > expirationTime
+    };
+}
+
+// 세션 수동 갱신 (사용자가 활동할 때)
+function refreshSession() {
+    if (!isAuthenticated()) {
+        return false;
+    }
+
+    const user = localStorage.getItem('y711_user');
+    const sessionTimeout = (process.env.SESSION_TIMEOUT_MINUTES || 30) * 60 * 1000;
+    const now = new Date();
+    const newExpiresAt = new Date(now.getTime() + sessionTimeout);
+
+    localStorage.setItem('y711_session_expires_at', newExpiresAt.toISOString());
+    localStorage.setItem('y711_last_activity', now.toISOString());
+
+    console.log('Session refreshed. New expiration:', newExpiresAt.toISOString());
+    return true;
 }
 
 // ========================================

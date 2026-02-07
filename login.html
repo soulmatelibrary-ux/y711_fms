@@ -363,7 +363,8 @@
             const result = await login(username, password);
 
             if (result.success) {
-                // 로그인 성공 - 메인 페이지로 이동
+                // 로그인 성공 - 활동 추적 시작 및 메인 페이지로 이동
+                setupActivityTracking();
                 window.location.href = '/';
             } else {
                 // 로그인 실패 - 에러 메시지 표시
