@@ -4,9 +4,13 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite --port 7300",
+    "dev:7301": "vite --port 7301 --host",
     "build": "vite build",
     "preview": "vite preview --port 7300",
     "start": "node api-server.js",
+    "serve": "npm run build && npm run start",
+    "prod": "PORT=7300 node api-server.js",
+    "prod:7301": "PORT=7301 node api-server.js",
     "parse:schedule": "node scripts/parse_schedule.js"
   },
   "keywords": [],
@@ -21,6 +25,7 @@
     "dotenv": "^17.2.4",
     "express": "^4.18.2",
     "oracledb": "^6.3.0",
-    "sql.js": "^1.13.0"
+    "sql.js": "^1.13.0",
+    "sqlite3": "^5.1.7"
   }
 }

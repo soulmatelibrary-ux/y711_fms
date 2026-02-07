@@ -21,9 +21,15 @@
     --manual-change: #ffcc00;
     --cascade-change: rgba(255, 204, 0, 0.4);
 
-    --sidebar-width: 580px;
-    --header-height: 60px;
+    /* 1920x1080 최적화 기본값 */
+    --sidebar-width: 480px;
+    /* 600px → 480px (20% 축소) */
+    --header-height: 64px;
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+
+    /* 기본 폰트 및 간격 (1920x1080) */
+    --base-font-size: 14px;
+    --base-spacing: 1rem;
 }
 
 @keyframes pulse {
@@ -67,51 +73,66 @@ body {
 /* =========================================
    HEADER
    ========================================= */
+/* =========================================
+   APP HEADER - Optimized Layout
+   ========================================= */
 .app-header {
     height: var(--header-height);
     background: rgba(22, 27, 34, 0.95);
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 1.5rem;
+    justify-content: flex-start;
+    gap: 1rem;
+    padding: 0 1.2rem;
     flex-shrink: 0;
     z-index: 100;
 }
 
-.header-left {
+/* Branding Section */
+.header-branding {
     display: flex;
     align-items: center;
-    gap: 2rem;
+    flex-shrink: 0;
+    min-width: fit-content;
 }
 
-.header-left h1 {
+.header-branding h1 {
     font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-size: 1.25rem;
+    font-size: 1.15rem;
     font-weight: 700;
     color: var(--text-primary);
     margin: 0;
+    white-space: nowrap;
+    letter-spacing: -0.3px;
 }
 
-.header-left h1 span {
+.header-branding h1 span {
     color: var(--accent-blue);
+    display: none;
 }
 
+/* Navigation */
 .top-nav {
     display: flex;
-    gap: 0.5rem;
+    gap: 0;
+    align-items: center;
+    flex-shrink: 0;
 }
 
 .nav-btn {
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    padding: 0.5rem 1rem;
+    padding: 0.45rem 0.95rem;
     cursor: pointer;
     font-weight: 500;
-    border-radius: 4px;
+    border-radius: 6px;
     transition: all 0.2s;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    height: 32px;
+    display: flex;
+    align-items: center;
 }
 
 .nav-btn:hover {
@@ -121,7 +142,16 @@ body {
 
 .nav-btn.active {
     color: var(--accent-blue);
-    background: rgba(59, 130, 246, 0.1);
+    background: rgba(59, 130, 246, 0.12);
+}
+
+/* Action Buttons Section */
+.header-actions {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    margin-right: 1rem;
+    flex-shrink: 0;
 }
 
 .header-center .sim-status {
@@ -147,15 +177,29 @@ body {
     font-weight: 600;
 }
 
-.header-right .user-profile {
+/* User Profile & Right Section */
+.header-right {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    font-size: 0.9rem;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.header-right .user-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.85rem;
     color: var(--text-secondary);
-    padding: 0.5rem 1rem;
+    padding: 0.45rem 0.95rem;
     background: rgba(255, 255, 255, 0.05);
-    border-radius: 20px;
+    border-radius: 6px;
+    height: 32px;
+}
+
+.header-right .username {
+    min-width: 40px;
 }
 
 .status-indicator {
@@ -184,7 +228,16 @@ body {
     border-right: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    flex-shrink: 0;
+    flex: 0 1 auto;
+    /* flex-shrink: 0을 제거하고 flex: 0 1 auto로 설정
+       0: flex-grow (0 = 커지지 않음)
+       1: flex-shrink (1 = 필요시 축소 가능)
+       auto: flex-basis (자동 크기)
+    */
+    min-height: 0;
+    height: 100%;
+    /* 부모의 전체 높이를 사용하여 스크롤 가능하게 만듦 */
+    /* 이 설정으로 flight-queue-list가 부모 높이에 맞춰 스크롤됨 */
 }
 
 .panel-header {
@@ -228,6 +281,13 @@ body {
     border-radius: 2px;
 }
 
+/* Left Panel Children - Fixed Sizing */
+.left-panel > div:first-child {
+    /* Inline styled div with date/merge controls */
+    flex-shrink: 0;
+    margin-bottom: 20px;
+}
+
 /* Flight Queue Header & Controls */
 
 .separation-control {
@@ -264,8 +324,8 @@ body {
 /* Flight Queue List */
 .flight-queue-header {
     display: grid;
-    /* Callsign, Dept, Dest, CFL, EOBT, CTOT (ATD 숨김) */
-    grid-template-columns: 1.5fr 0.8fr 0.8fr 0.7fr 1fr 1.2fr;
+    /* Callsign, Dept, Dest, CFL, EOBT, CTOT - 균등한 비율 */
+    grid-template-columns: 1.2fr 0.95fr 0.95fr 0.8fr 1fr 1.1fr;
     padding: 0.8rem 0.5rem;
     padding-right: 18px;
     /* Scrollbar compensation */
@@ -277,6 +337,8 @@ body {
     border-bottom: 1px solid var(--border-color);
     gap: 0.5rem;
     align-items: center;
+    flex-shrink: 0;
+    /* Prevent header from shrinking - keeps it fixed */
 }
 
 /* 헤더 텍스트 정렬 */
@@ -299,13 +361,35 @@ body {
     flex: 1;
     /* 남은 공간을 모두 사용하여 목록 높이 최대화 */
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 0.5rem;
+    min-height: 0;
+    /* 스크롤바 스타일 */
+}
+
+/* 스크롤바 스타일링 */
+.flight-queue-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.flight-queue-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+}
+
+.flight-queue-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+.flight-queue-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .queue-item {
     display: grid;
-    /* 체크박스, Callsign, Dept, Dest, CFL, EOBT, CTOT (ATD 숨김) */
-    grid-template-columns: 24px 1.5fr 0.8fr 0.8fr 0.7fr 1fr 1.2fr;
+    /* 체크박스, Callsign, Dept, Dest, CFL, EOBT, CTOT - 균등한 비율 */
+    grid-template-columns: 24px 1.2fr 0.95fr 0.95fr 0.8fr 1fr 1.1fr;
     padding: 0.3rem 0.4rem;
     margin-bottom: 2px;
     background: rgba(30, 41, 59, 0.4);
@@ -554,11 +638,12 @@ body {
 .ctot-legend {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
+    gap: 6px;
+    padding: 5px 10px;
     background: rgba(0, 0, 0, 0.2);
     border-bottom: 1px solid var(--border-color);
-    font-size: 0.7rem;
+    font-size: 0.65rem;
+    flex-shrink: 0;
 }
 
 .ctot-legend .legend-label {
@@ -667,11 +752,13 @@ body {
 }
 
 .panel-footer {
-    flex: 0;
+    flex: 0 0 auto;
     /* Flight Queue 목록 높이 최대화를 위해 최소 높이만 유지 */
     padding: 1rem;
     border-top: 1px solid var(--border-color);
     background: rgba(22, 27, 34, 0.8);
+    flex-shrink: 0;
+    /* Prevent footer from affecting list height */
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -701,10 +788,23 @@ body {
     background: transparent;
     border: 1px solid var(--border-color);
     color: var(--text-primary);
+    padding: 0.45rem 0.95rem;
+    font-size: 0.8rem;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    min-width: auto;
 }
 
 .btn-secondary:hover {
     background: rgba(255, 255, 255, 0.05);
+    border-color: var(--accent-blue);
+}
+
+.btn-icon {
+    padding: 0.45rem 0.65rem !important;
+    min-width: 32px;
+    justify-content: center;
 }
 
 .full-width {
@@ -1328,43 +1428,45 @@ body {
     position: relative;
 }
 
+/* Excel Upload Section */
 .excel-upload-section {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 8px;
-    margin-left: 15px;
-    padding: 0 10px;
+    gap: 6px;
+    padding: 0;
 }
 
 .excel-btn {
-    padding: 6px 12px !important;
+    padding: 0.45rem 0.95rem !important;
     font-size: 0.8rem !important;
-    min-width: 80px;
     white-space: nowrap;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: auto;
+}
+
+.excel-btn:first-child {
+    background: var(--accent-blue) !important;
+    border-color: var(--accent-blue) !important;
+    color: white !important;
+}
+
+.excel-btn:first-child:hover {
+    background: hsl(213, 100%, 52%) !important;
 }
 
 .upload-status {
-    font-size: 0.7rem;
-    min-width: 100px;
+    font-size: 0.75rem;
     color: var(--text-secondary);
     white-space: nowrap;
+    margin-left: 8px;
+    min-width: 80px;
 }
 
 .upload-status:empty {
     display: none;
-}
-
-/* Header layout improvements */
-.header-left {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex: 1;
-}
-
-.top-nav {
-    display: flex;
-    gap: 5px;
 }
 
 /* Upload status message styling */
@@ -1919,6 +2021,21 @@ body {
         min-width: 36px;
         min-height: 36px;
     }
+
+    /* Header branding visibility */
+    .header-branding h1 span {
+        display: inline !important;
+    }
+
+    /* Optimal gap for desktop */
+    .app-header {
+        gap: 1.2rem;
+        padding: 0 1.5rem;
+    }
+
+    .header-actions {
+        margin-right: 1.2rem;
+    }
 }
 
 /* =========================================
@@ -1947,170 +2064,259 @@ body {
         padding: 0.75rem 1rem !important;
         height: auto !important;
         min-height: auto !important;
-        flex-wrap: wrap !important;
-        gap: 0.5rem !important;
         flex-direction: column !important;
+        gap: 0.75rem !important;
         align-items: stretch !important;
     }
 
-    .header-left {
+    /* Brand - full width */
+    .header-branding {
         width: 100% !important;
-        gap: 0.5rem !important;
-        flex-wrap: wrap !important;
-        margin-bottom: 0.5rem !important;
-        flex-direction: column !important;
-    }
-
-    .header-left h1 {
-        font-size: 1rem !important;
         order: 1 !important;
-        width: 100% !important;
-        margin-bottom: 0.5rem !important;
+        padding-bottom: 0.5rem !important;
+        border-bottom: 1px solid var(--border-color) !important;
     }
 
-    .header-left h1 span {
+    .header-branding h1 {
+        font-size: 1rem !important;
+    }
+
+    .header-branding h1 span {
         display: none !important;
     }
 
+    /* Navigation - auto width */
     .top-nav {
         order: 2 !important;
-        gap: 0.25rem !important;
         width: auto !important;
-        flex-wrap: nowrap !important;
+        gap: 0.25rem !important;
     }
 
-    .top-nav .nav-btn {
-        padding: 0.6rem 0.75rem !important;
-        font-size: 0.9rem !important;
-        min-height: 44px !important;
-        width: auto !important;
-        white-space: nowrap !important;
+    .nav-btn {
+        padding: 0.4rem 0.75rem !important;
+        font-size: 0.8rem !important;
+        min-height: auto !important;
+    }
+
+    /* Actions - full width if space is tight */
+    .header-actions {
+        order: 3 !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        width: 100% !important;
     }
 
     .excel-upload-section {
-        order: 3 !important;
         width: 100% !important;
-        flex-direction: column !important;
-        gap: 0.5rem !important;
-        margin-top: 0.5rem !important;
+        flex-direction: row !important;
+        gap: 0.4rem !important;
     }
 
-    .excel-upload-section .btn {
-        width: 100% !important;
-        padding: 0.75rem 1rem !important;
-        font-size: 0.95rem !important;
+    .excel-btn {
+        flex: 1;
+        padding: 0.5rem 0.6rem !important;
+        font-size: 0.75rem !important;
+        min-width: auto !important;
     }
 
+    /* User menu - full width */
     .header-right {
-        width: auto !important;
         order: 4 !important;
-        gap: 0.25rem !important;
-        flex-wrap: nowrap !important;
-        margin-top: 0.5rem !important;
-    }
-
-    .header-right .user-profile {
-        display: none !important;
+        margin-left: 0 !important;
+        width: 100% !important;
+        gap: 0.4rem !important;
+        justify-content: space-between !important;
     }
 
     .header-right .btn {
-        padding: 0.6rem 0.75rem !important;
-        font-size: 0.9rem !important;
-        min-height: 44px !important;
-        width: auto !important;
-        white-space: nowrap !important;
+        flex: 1;
+        padding: 0.5rem 0.6rem !important;
+        font-size: 0.75rem !important;
+    }
+
+    .header-right .user-profile {
+        flex: 1;
+        padding: 0.4rem 0.6rem !important;
+        font-size: 0.75rem !important;
+        display: flex !important;
     }
 }
 
-/* Mobile S (481px - 568px) - 1 column layout */
+/* Mobile S (481px - 568px) - Stack with flex layout */
 @media (min-width: 481px) and (max-width: 568px) {
     .app-header {
-        flex-wrap: wrap;
+        flex-direction: column;
         padding: 0.75rem 1rem;
         height: auto;
-        min-height: 60px;
-    }
-
-    .header-left {
-        width: 100%;
         gap: 0.75rem;
-        flex-wrap: wrap;
-        margin-bottom: 0.5rem;
     }
 
-    .header-left h1 {
-        font-size: 1.1rem;
+    .header-branding {
         order: 1;
         width: 100%;
-        margin-bottom: 0.5rem;
     }
 
-    .header-left h1 span {
-        display: none;
+    .header-branding h1 {
+        font-size: 1.05rem;
     }
 
     .top-nav {
         order: 2;
-        gap: 0.5rem;
+        width: auto;
+        gap: 0.4rem;
+    }
+
+    .nav-btn {
+        padding: 0.4rem 0.7rem;
+        font-size: 0.8rem;
+        height: 32px;
+    }
+
+    .header-actions {
+        order: 3;
+        width: 100%;
+        margin-left: 0;
+        margin-right: 0;
     }
 
     .excel-upload-section {
-        order: 3;
         width: 100%;
         flex-direction: row;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
+        gap: 0.4rem;
     }
 
-    .excel-upload-section .btn {
+    .excel-btn {
         flex: 1;
-        padding: 0.75rem 0.8rem;
-        font-size: 0.85rem;
+        padding: 0.5rem 0.6rem;
+        font-size: 0.75rem;
     }
 
     .header-right {
         order: 4;
         width: 100%;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
+        margin-left: 0;
+        gap: 0.4rem;
+        justify-content: space-between;
     }
 
     .header-right .user-profile {
         display: none;
     }
+
+    .header-right .btn {
+        flex: 1;
+        padding: 0.5rem 0.6rem;
+        font-size: 0.75rem;
+    }
 }
 
-/* Tablet (569px - 768px) - Partial single line */
+/* Tablet (569px - 768px) - 2-row layout */
 @media (min-width: 569px) and (max-width: 768px) {
     .app-header {
         flex-wrap: wrap;
         padding: 0.75rem 1rem;
+        gap: 0.75rem;
     }
 
-    .header-left {
-        gap: 1rem;
-        flex: 1;
+    .header-branding {
+        order: 1;
+        width: 100%;
     }
 
-    .header-left h1 {
-        font-size: 1.15rem;
+    .header-branding h1 {
+        font-size: 1.05rem;
     }
 
-    .header-left h1 span {
+    .header-branding h1 span {
         display: inline;
         font-size: 0.85em;
     }
 
-    .excel-upload-section {
-        flex-direction: row;
-        gap: 0.5rem;
+    .top-nav {
+        order: 2;
+        gap: 0.4rem;
+    }
+
+    .nav-btn {
+        padding: 0.45rem 0.85rem;
+        font-size: 0.8rem;
+        height: 32px;
+    }
+
+    .header-actions {
+        order: 3;
+        margin-left: auto;
+        margin-right: 0;
         width: auto;
     }
 
-    .excel-upload-section .btn {
-        padding: 0.65rem 0.8rem;
+    .excel-upload-section {
+        gap: 0.5rem;
+    }
+
+    .excel-btn {
+        padding: 0.45rem 0.85rem;
+        font-size: 0.8rem;
+    }
+
+    .header-right {
+        order: 4;
+        margin-left: auto;
+        width: auto;
+        gap: 0.5rem;
+    }
+
+    .header-right .user-profile {
+        display: flex;
+        font-size: 0.8rem;
+        padding: 0.45rem 0.85rem;
+        height: 32px;
+    }
+
+    .header-right .btn {
+        padding: 0.45rem 0.85rem;
+        font-size: 0.8rem;
+        height: 32px;
+    }
+}
+
+/* Small Laptop (769px - 1024px) - Single line header */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .app-header {
+        padding: 0 1.2rem;
+        gap: 1rem;
+    }
+
+    .header-branding h1 {
+        font-size: 1.1rem;
+    }
+
+    .header-branding h1 span {
+        display: inline;
+    }
+
+    .top-nav {
+        gap: 0.4rem;
+    }
+
+    .nav-btn {
+        padding: 0.45rem 0.85rem;
         font-size: 0.85rem;
-        white-space: nowrap;
+        height: 32px;
+    }
+
+    .header-actions {
+        margin-left: auto;
+        margin-right: 1rem;
+    }
+
+    .excel-upload-section {
+        gap: 0.5rem;
+    }
+
+    .excel-btn {
+        padding: 0.45rem 0.85rem;
+        font-size: 0.8rem;
     }
 
     .header-right {
@@ -2118,32 +2324,15 @@ body {
     }
 
     .header-right .user-profile {
-        display: flex;
-        font-size: 0.85rem;
-    }
-}
-
-/* Small Laptop (769px - 1024px) - 2 column header */
-@media (min-width: 769px) and (max-width: 1024px) {
-    .app-header {
-        padding: 0 1.25rem;
+        font-size: 0.8rem;
+        padding: 0.45rem 0.85rem;
+        height: 32px;
     }
 
-    .header-left {
-        gap: 1.5rem;
-    }
-
-    .header-left h1 {
-        font-size: 1.15rem;
-    }
-
-    .excel-upload-section {
-        gap: 0.75rem;
-    }
-
-    .excel-upload-section .btn {
-        padding: 0.65rem 0.9rem;
-        font-size: 0.85rem;
+    .header-right .btn {
+        padding: 0.45rem 0.85rem;
+        font-size: 0.8rem;
+        height: 32px;
     }
 
     .header-right {
@@ -2580,11 +2769,249 @@ body {
         flex-shrink: 0;
         height: 100%;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .flight-queue-list {
+        max-height: calc(100vh - 64px - 200px);
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 
     .right-panel {
         flex: 1;
         height: 100%;
         overflow: hidden;
+    }
+}
+
+/* ============================================
+   1920x1080 최적화 (Full HD Desktop)
+   ============================================ */
+@media (min-width: 1920px) {
+    :root {
+        --sidebar-width: 520px;
+        /* 650px → 520px (20% 축소) */
+        --header-height: 68px;
+        --base-font-size: 15px;
+        --base-spacing: 1.2rem;
+    }
+
+    html {
+        font-size: 15px;
+    }
+
+    .app-header {
+        height: var(--header-height);
+        padding: 0 1.5rem;
+        gap: 1.5rem;
+    }
+
+    .header-branding h1 {
+        font-size: 1.3rem;
+    }
+
+    .header-branding h1 span {
+        display: inline;
+        margin-left: 0.5rem;
+    }
+
+    .top-nav {
+        gap: 0.5rem;
+    }
+
+    .nav-btn {
+        padding: 0.5rem 1.1rem;
+        height: 36px;
+        font-size: 0.9rem;
+    }
+
+    .btn {
+        padding: 0.65rem 1.2rem;
+        font-size: 0.9rem;
+        height: 36px;
+    }
+
+    .btn-icon {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+    }
+
+    .header-right .user-profile {
+        height: 36px;
+        padding: 0.5rem 1.1rem;
+        font-size: 0.9rem;
+    }
+
+    .left-panel {
+        width: var(--sidebar-width);
+    }
+
+    .flight-queue-header {
+        padding: 1rem 0.6rem;
+        padding-right: 20px;
+        font-size: 0.8rem;
+    }
+
+    .flight-queue-list {
+        padding: 0.6rem;
+    }
+
+    .queue-item {
+        padding: 0.4rem 0.5rem;
+        margin-bottom: 3px;
+        font-size: 0.9rem;
+    }
+
+    .queue-item .col-cs {
+        font-size: 0.95rem;
+    }
+
+    .panel-footer {
+        padding: 1.2rem;
+    }
+
+    .panel-footer .btn {
+        padding: 0.75rem 1.5rem;
+        font-size: 0.95rem;
+    }
+
+    .right-panel {
+        padding: 1.2rem;
+        gap: 1.2rem;
+    }
+
+    .card-header {
+        font-size: 1rem;
+    }
+
+    .timeline-section,
+    .live-map-section {
+        padding: 1.2rem;
+    }
+
+    /* 모달 크기 조정 */
+    .modal {
+        min-width: 500px;
+    }
+
+    .modal-header {
+        font-size: 1.1rem;
+        padding: 1.5rem;
+    }
+
+    .modal-content {
+        padding: 1.5rem;
+    }
+
+    .form-input,
+    .form-select {
+        padding: 0.75rem 1rem;
+        font-size: 0.95rem;
+    }
+
+    /* 텍스트 크기 최적화 */
+    body {
+        font-size: 15px;
+    }
+
+    h1 { font-size: 1.8rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.2rem; }
+}
+
+/* ============================================
+   1440x900 (중간 데스크톱)
+   ============================================ */
+@media (min-width: 1440px) and (max-width: 1919px) {
+    :root {
+        --sidebar-width: 464px;
+        /* 580px → 464px (20% 축소) */
+        --header-height: 64px;
+    }
+
+    html {
+        font-size: 14px;
+    }
+
+    .btn {
+        padding: 0.6rem 1rem;
+        height: 34px;
+    }
+
+    .nav-btn {
+        height: 34px;
+    }
+
+    .queue-item {
+        font-size: 0.87rem;
+    }
+}
+
+/* ============================================
+   1024-1439px (소형 데스크톱/태블릿 대형)
+   ============================================ */
+@media (min-width: 1025px) and (max-width: 1439px) {
+    :root {
+        --sidebar-width: 416px;
+        /* 520px → 416px (20% 축소) */
+        --header-height: 60px;
+    }
+
+    html {
+        font-size: 13px;
+    }
+
+    .queue-item {
+        font-size: 0.82rem;
+    }
+
+    .flight-queue-header {
+        font-size: 0.7rem;
+    }
+}
+
+/* ============================================
+   768-1024px (태블릿)
+   ============================================ */
+@media (max-width: 1024px) {
+    :root {
+        --sidebar-width: 100%;
+        --header-height: 56px;
+    }
+
+    html {
+        font-size: 13px;
+    }
+
+    .app-body {
+        flex-direction: column;
+    }
+
+    .left-panel {
+        width: 100%;
+        height: auto;
+        max-height: 40vh;
+        flex-shrink: 0;
+    }
+
+    .right-panel {
+        flex: 1;
+    }
+}
+
+/* ============================================
+   768px 이하 (모바일)
+   ============================================ */
+@media (max-width: 768px) {
+    :root {
+        --sidebar-width: 100%;
+        --header-height: 52px;
+    }
+
+    html {
+        font-size: 12px;
     }
 }

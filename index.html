@@ -3,7 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>CJU Flow Simulator - 제주공항 도착 흐름 관리 시스템</title>
     <link rel="stylesheet" href="/src/style.css">
     <!-- Authentication -->
@@ -20,34 +22,39 @@
     <div id="app" style="visibility: hidden;">
         <!-- 상단 헤더 (메뉴 및 설정 요약) -->
         <header class="app-header">
-            <div class="header-left">
+            <!-- Logo & Brand -->
+            <div class="header-branding">
                 <h1>제주공항 <span>흐름 관리 시스템</span></h1>
-                <nav class="top-nav">
-                    <button class="nav-btn active" id="view-dashboard">Dashboard</button>
-                    <button class="nav-btn" id="view-settings">Settings</button>
-                </nav>
-                <!-- Excel Upload -->
+            </div>
+
+            <!-- Main Navigation -->
+            <nav class="top-nav">
+                <button class="nav-btn active" id="view-dashboard">Dashboard</button>
+                <button class="nav-btn" id="view-settings">Settings</button>
+            </nav>
+
+            <!-- Action Buttons (Excel Upload) -->
+            <div class="header-actions">
                 <div class="excel-upload-section">
                     <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display: none;">
-                    <button onclick="document.getElementById('excel-upload').click()" class="btn btn-primary excel-btn">
-                        📂 Excel 업로드
+                    <button onclick="document.getElementById('excel-upload').click()" class="btn btn-primary excel-btn" title="Excel 파일 업로드">
+                        📂 Excel
                     </button>
-                    <button id="download-sample-btn" class="btn btn-secondary excel-btn">
-                        📥 샘플 다운로드
+                    <button id="download-sample-btn" class="btn btn-secondary excel-btn" title="샘플 파일 다운로드">
+                        📥 Sample
                     </button>
                     <div id="upload-status" class="upload-status"></div>
                 </div>
             </div>
-            <div class="header-center">
-                <!-- Sim Time moved to play button line -->
-            </div>
+
+            <!-- User Menu -->
             <div class="header-right">
-                <button id="logout-btn" class="btn btn-secondary">로그아웃</button>
+                <button id="help-btn" class="btn btn-secondary btn-icon" title="도움말">?</button>
                 <div class="user-profile">
                     <span class="status-indicator online"></span>
-                    <span id="current-user">acc</span>
+                    <span id="current-user" class="username">acc</span>
                 </div>
-                <button id="help-btn" class="btn btn-secondary">? 도움말</button>
+                <button id="logout-btn" class="btn btn-secondary" title="로그아웃">로그아웃</button>
             </div>
         </header>
 

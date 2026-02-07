@@ -1,6 +1,32 @@
 console.log('main.js: Top-level execution start');
 
 // ========================================
+// Three.js Warning Filter
+// ========================================
+// Filter out verbose Three.js warnings while keeping errors
+const originalWarn = console.warn;
+console.warn = function(...args) {
+    const message = args[0]?.toString() || '';
+
+    // Filter out non-critical Three.js warnings
+    const ignoredWarnings = [
+        'THREE.BufferGeometry.computeBoundingSphere()',
+        'Computed radius is NaN',
+        'position attribute is likely to have NaN',
+        'THREE.WebGLRenderer'
+    ];
+
+    const shouldIgnore = ignoredWarnings.some(warning =>
+        message.includes(warning)
+    );
+
+    // Still log to originalWarn for debugging if needed
+    if (!shouldIgnore) {
+        originalWarn.apply(console, args);
+    }
+};
+
+// ========================================
 // Session Management & Authentication
 // ========================================
 
@@ -45,16 +71,9 @@ async function initDatabase() {
 
         console.log('initDatabase: sql.js initialized');
 
-        // Try to load existing database from localStorage
-        const data = localStorage.getItem('fms_database');
-        if (data) {
-            const buffer = new Uint8Array(JSON.parse(data));
-            db = new sqlJs.Database(buffer);
-            console.log('initDatabase: Database loaded from localStorage');
-        } else {
-            db = new sqlJs.Database();
-            console.log('initDatabase: New database created');
-        }
+        // Create fresh database (localStorage cache disabled)
+        db = new sqlJs.Database();
+        console.log('initDatabase: New database created (cache disabled)');
 
         // Create tables if they don't exist
         db.run(`
@@ -124,18 +143,18 @@ async function initDatabase() {
         loadTodaysFlights();
 
     } catch (error) {
-        console.error('Failed to initialize database (falling back to mock):', error);
-        loadMockScheduleData(); // Fallback to mock data
+        console.error('Failed to initialize database:', error);
+        showToast('데이터베이스 초기화 실패. Excel을 통해 데이터를 업로드하세요.', 'error');
+        // 목업 데이터 비활성화 - DB 연결 필요
+        // loadMockScheduleData();
     }
 }
 
-// Save database to localStorage
+// Save database to localStorage (disabled - using fresh DB on each load)
 function saveDatabase() {
-    if (db) {
-        const data = db.export();
-        const buffer = Array.from(data);
-        localStorage.setItem('fms_database', JSON.stringify(buffer));
-    }
+    // localStorage cache disabled
+    // Each session starts with fresh database
+    console.log('Database auto-save disabled (fresh DB on each load)');
 }
 
 // ============================================
@@ -618,8 +637,7 @@ function loadTodaysFlights() {
     console.log("=== LOADING FLIGHTS FROM DATABASE ===");
 
     if (!db) {
-        console.log('Database not initialized, loading mock data');
-        loadMockScheduleData();
+        console.log('Database not initialized');
         return;
     }
 
@@ -633,12 +651,12 @@ function loadTodaysFlights() {
     }
 
     try {
-        // Load ALL flights from database (7일 반복 스케줄)
+        // Load ALL flights from database
         const allResults = db.exec('SELECT * FROM flights');
 
         if (allResults.length > 0 && allResults[0].values.length > 0) {
             const rows = allResults[0].values;
-            console.log(`Found ${rows.length} flights in database (7-day schedule)`);
+            console.log(`Found ${rows.length} flights in database`);
 
             const dbFlights = [];
             rows.forEach(row => {
@@ -655,7 +673,7 @@ function loadTodaysFlights() {
             });
 
             excelFlightData = dbFlights;
-            console.log('Loaded', dbFlights.length, 'flights from database (7-day schedule)');
+            console.log('✅ Loaded', dbFlights.length, 'flights from database');
 
             // Set current date as selected
             selectedDate = new Date();
@@ -663,12 +681,14 @@ function loadTodaysFlights() {
 
             loadFlightsForDate();
         } else {
-            console.log('No data in database, loading mock data');
-            loadMockScheduleData();
+            console.log('❌ No data in database. Please upload Excel file to load flights.');
+            allFlights = [];
+            renderFlightQueue();
         }
     } catch (error) {
         console.error('Error loading from database:', error);
-        loadMockScheduleData();
+        allFlights = [];
+        renderFlightQueue();
     }
 }
 
@@ -697,10 +717,12 @@ function createSvgEl(tag, attrs) {
 }
 
 function altitudeToY(fl) {
-    const maxFl = 280;
-    const minFl = 140;
+    /* LIVE ROUTE MAP 고도 범위: FL100(10,000ft) ~ FL320(32,000ft) */
+    const maxFl = 320;
+    const minFl = 100;
     const topY = 50;
     const bottomY = 500;
+    /* 계산: (현재FL - 최소FL) / (최대FL - 최소FL) * (Y 범위) */
     return bottomY - ((fl - minFl) / (maxFl - minFl)) * (bottomY - topY);
 }
 
@@ -2344,10 +2366,11 @@ function initFlightMap() {
         gLanes.appendChild(dashLine);
 
         // Standard altitude lanes (hidden in dashboard)
+        // 고도 범위: FL100(10,000ft) ~ FL320(32,000ft)
         const laneGroup = createSvgEl('g', { id: 'altitude-lane-group' });
         const ground = createSvgEl('line', { x1: 0, y1: 800, x2: 1600, y2: 800, stroke: '#444', 'stroke-width': 2 });
         laneGroup.appendChild(ground);
-        for (let fl = 140; fl <= 280; fl += 20) {
+        for (let fl = 100; fl <= 320; fl += 20) {
             const y = altitudeToY(fl);
             const line = createSvgEl('line', { x1: 0, y1: y, x2: 1600, y2: y, stroke: '#333', 'stroke-width': 1, 'stroke-dasharray': '5,5' });
             laneGroup.appendChild(line);
@@ -2893,6 +2916,15 @@ document.addEventListener('DOMContentLoaded', () => {
             initTimeline();
             initFlightMap();
             updateSimulationUI();
+
+            // 📌 HTML 인라인 스크립트에서 접근하기 위해 window 객체에 함수 노출
+            window.processExcelFile = processExcelFile;
+            window.editFlightRecord = editFlightRecord;
+            window.deleteFlightRecord = deleteFlightRecord;
+            window.loadFlightsForDate = loadFlightsForDate;
+            window.updateCTOTs = updateCTOTs;
+            window.showToast = showToast;
+            window.downloadSampleExcel = downloadSampleExcel;
 
             window.fmsDebug.isReady = true;
             console.log('App initialization complete. Flights:', allFlights.length);
