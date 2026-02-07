@@ -60,6 +60,7 @@ async function initDatabase() {
         db.run(`
             CREATE TABLE IF NOT EXISTS flights (
                 id TEXT PRIMARY KEY,
+                user_id VARCHAR(50),
                 callsign TEXT,
                 dept TEXT,
                 dest TEXT,
@@ -68,21 +69,56 @@ async function initDatabase() {
                 day_of_week INTEGER,
                 uploaded_date TEXT,
                 schedule_start_date TEXT,
-                schedule_end_date TEXT
+                schedule_end_date TEXT,
+                uploaded_by VARCHAR(50),
+                uploaded_at TIMESTAMP,
+                uploaded_session_id TEXT,
+                is_editable BOOLEAN DEFAULT 1,
+                is_deletable BOOLEAN DEFAULT 1
             )
         `);
 
         // Migration: Add new columns if they don't exist (for existing databases)
         try {
+            db.run('ALTER TABLE flights ADD COLUMN user_id VARCHAR(50)');
+        } catch (e) {}
+        try {
             db.run('ALTER TABLE flights ADD COLUMN schedule_start_date TEXT');
-        } catch (e) {
-            // Column already exists, ignore error
-        }
+        } catch (e) {}
         try {
             db.run('ALTER TABLE flights ADD COLUMN schedule_end_date TEXT');
-        } catch (e) {
-            // Column already exists, ignore error
-        }
+        } catch (e) {}
+        try {
+            db.run('ALTER TABLE flights ADD COLUMN uploaded_by VARCHAR(50)');
+        } catch (e) {}
+        try {
+            db.run('ALTER TABLE flights ADD COLUMN uploaded_at TIMESTAMP');
+        } catch (e) {}
+        try {
+            db.run('ALTER TABLE flights ADD COLUMN uploaded_session_id TEXT');
+        } catch (e) {}
+        try {
+            db.run('ALTER TABLE flights ADD COLUMN is_editable BOOLEAN DEFAULT 1');
+        } catch (e) {}
+        try {
+            db.run('ALTER TABLE flights ADD COLUMN is_deletable BOOLEAN DEFAULT 1');
+        } catch (e) {}
+
+        // CTOT 테이블 생성
+        db.run(`
+            CREATE TABLE IF NOT EXISTS ctot_calculations (
+                id TEXT PRIMARY KEY,
+                user_id VARCHAR(50),
+                flight_id TEXT,
+                calculated_ctot TEXT,
+                delay_minutes INTEGER,
+                separation_rule INTEGER,
+                status VARCHAR(20),
+                calculated_at TIMESTAMP,
+                modified_at TIMESTAMP,
+                modified_by VARCHAR(50)
+            )
+        `);
 
         // Load today's flights automatically
         loadTodaysFlights();
@@ -513,37 +549,48 @@ function validateExcelData(jsonData) {
 }
 
 // Save Excel data to SQLite database
-function saveExcelDataToDb(excelData, scheduleStartDate = null, scheduleEndDate = null) {
+function saveExcelDataToDb(excelData, scheduleStartDate = null, scheduleEndDate = null, userId = null, username = null, filename = null) {
     if (!db) return;
 
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     const timestamp = now.getTime();
+    const uploadSessionId = generateUUID().substring(0, 16);
 
-    // If schedule dates provided, delete only overlapping records
+    // 👤 사용자 정보 확보 (없으면 current user에서 로드)
+    const actualUserId = userId || localStorage.getItem('y711_user_id');
+    const actualUsername = username || getCurrentUser();
+
+    console.log(`💾 DB 저장 시작 (사용자: ${actualUsername})`);
+
+    // 📌 핵심: 이 사용자의 겹치는 기간 데이터만 삭제
     if (scheduleStartDate && scheduleEndDate) {
         db.run(`
             DELETE FROM flights
-            WHERE schedule_start_date IS NOT NULL
+            WHERE user_id = ?
+            AND schedule_start_date IS NOT NULL
             AND schedule_end_date IS NOT NULL
             AND schedule_start_date <= ?
             AND schedule_end_date >= ?
-        `, [scheduleStartDate, scheduleEndDate]);
-    } else {
-        // Legacy mode: no schedule dates provided, delete all
-        db.run('DELETE FROM flights');
+        `, [actualUserId, scheduleEndDate, scheduleStartDate]);
+
+        console.log(`🗑️  겹치는 기간 데이터 삭제 완료`);
     }
 
     // Insert new data
     const stmt = db.prepare(`
-        INSERT INTO flights (id, callsign, dept, dest, cfl, eobt_utc, day_of_week, uploaded_date, schedule_start_date, schedule_end_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO flights
+        (id, user_id, callsign, dept, dest, cfl, eobt_utc, day_of_week,
+         uploaded_date, schedule_start_date, schedule_end_date,
+         uploaded_by, uploaded_at, uploaded_session_id, is_editable, is_deletable)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
     `);
 
     excelData.forEach((row, index) => {
         const id = `${today}_${index}_${timestamp}`;
         stmt.run([
             id,
+            actualUserId,                    // 📌 사용자 ID
             row.CALLSIGN || '',
             row.DEPT || '',
             row.DEST || '',
@@ -552,14 +599,18 @@ function saveExcelDataToDb(excelData, scheduleStartDate = null, scheduleEndDate 
             parseDayOfWeek(row.DAY_OF_WEEK),
             today,
             scheduleStartDate || null,
-            scheduleEndDate || null
+            scheduleEndDate || null,
+            actualUsername,                  // 업로드한 사용자명
+            now.toISOString(),               // 업로드 시간
+            uploadSessionId                  // 업로드 세션 ID
         ]);
     });
 
     stmt.free();
     saveDatabase();
-    console.log('Excel data saved to database:', excelData.length, 'flights',
-        scheduleStartDate ? `(Period: ${scheduleStartDate} to ${scheduleEndDate})` : '(Legacy: no date range)');
+
+    console.log(`✅ ${excelData.length}개 항공편 저장 완료 (사용자: ${actualUsername})`);
+    console.log(`📌 세션 ID: ${uploadSessionId}`);
 }
 
 // Load flights from database (7일 반복 스케줄)
@@ -840,6 +891,13 @@ function showConflictIndicators(conflicts) {
 
 
 function updateCTOTs(startIndex = 0) {
+    // 👤 현재 사용자 확인
+    const userId = localStorage.getItem('y711_user_id');
+    const username = getCurrentUser();
+
+    console.log(`\n🧮 CTOT 계산 시작 (사용자: ${username})`);
+    console.log(`📋 대상 항공편: ${allFlights.length}개`);
+
     if (!els.flightQueue) return;
     const items = Array.from(els.flightQueue.children).filter(el => !el.classList.contains('placeholder'));
     const visibleItems = items.filter(item => item.style.display !== 'none');
@@ -856,6 +914,12 @@ function updateCTOTs(startIndex = 0) {
         const id = item.dataset.id;
         const flight = allFlights.find(f => f.id === id);
         if (!flight) continue;
+
+        // 📌 권한 확인: 자신의 항공편만 처리
+        if (flight.user_id && flight.user_id !== userId) {
+            console.warn(`⚠️  다른 사용자의 항공편 무시: ${flight.callsign}`);
+            continue;
+        }
 
         const eobtSec = timeToSec(flight.eobt);
         let tentativeCtot = eobtSec;
@@ -1894,6 +1958,14 @@ function setupEventListeners() {
 }
 
 function processExcelFile(file, scheduleStartDate = null, scheduleEndDate = null) {
+    // 👤 현재 로그인한 사용자 정보
+    const userId = localStorage.getItem('y711_user_id');
+    const username = getCurrentUser();
+
+    console.log(`\n📤 Excel 업로드 시작 (사용자: ${username})`);
+    console.log(`📄 파일명: ${file.name}`);
+    console.log(`📅 기간: ${scheduleStartDate} ~ ${scheduleEndDate}`);
+
     const reader = new FileReader();
     reader.onload = function (e) {
         try {
@@ -1910,11 +1982,11 @@ function processExcelFile(file, scheduleStartDate = null, scheduleEndDate = null
                 return;
             }
 
-            console.log('Excel data loaded and validated:', validation.rowCount, 'rows');
+            console.log('✅ Excel 파싱 완료:', validation.rowCount, '행');
             excelFlightData = jsonData;
 
-            // Save to database with schedule dates
-            saveExcelDataToDb(jsonData, scheduleStartDate, scheduleEndDate);
+            // 📌 사용자 정보 포함하여 저장
+            saveExcelDataToDb(jsonData, scheduleStartDate, scheduleEndDate, userId, username, file.name);
 
             loadFlightsForDate(); // Use new date-based loading
 
@@ -1936,6 +2008,11 @@ function loadFlightsForDate(targetDate = selectedDate) {
     console.log("=== LOADING FLIGHTS FOR DATE ===");
     console.log("Target date:", targetDate.toDateString());
 
+    // 👤 현재 로그인한 사용자 정보
+    const userId = localStorage.getItem('y711_user_id');
+    const username = getCurrentUser();
+    console.log(`👤 사용자: ${username} (ID: ${userId})`);
+
     // Get day of week for the selected operational day
     // Excel uses 1=Monday, 2=Tuesday, ... 7=Sunday
     // JS getDay() uses 0=Sunday, 1=Monday, ... 6=Saturday
@@ -1950,15 +2027,17 @@ function loadFlightsForDate(targetDate = selectedDate) {
     // Try to load from database first
     if (db) {
         try {
+            // 📌 핵심: WHERE user_id = ? 필터 추가 (사용자별 데이터만 로드)
             const results = db.exec(`
                 SELECT * FROM flights
-                WHERE day_of_week = ?
+                WHERE user_id = ?
+                AND day_of_week = ?
                 AND (
                     (schedule_start_date IS NULL AND schedule_end_date IS NULL)
                     OR (schedule_start_date <= ? AND schedule_end_date >= ?)
                 )
                 ORDER BY eobt_utc ASC
-            `, [targetDayOfWeek, targetDateStr, targetDateStr]);
+            `, [userId, targetDayOfWeek, targetDateStr, targetDateStr]);
 
             if (results.length > 0 && results[0].values.length > 0) {
                 // Convert database results to flight objects
@@ -2672,6 +2751,115 @@ function saveSettings() {
     initFlightMap();
 
     console.log('Settings saved:', { segmentConfig, airportDatabase, waypoints });
+}
+
+// ========================================
+// 항공편 수정/삭제 함수 (사용자별 독립)
+// ========================================
+
+function editFlightRecord(flightId) {
+    const userId = localStorage.getItem('y711_user_id');
+    const username = getCurrentUser();
+
+    const flight = allFlights.find(f => f.id === flightId);
+
+    if (!flight) {
+        showToast('❌ 항공편을 찾을 수 없습니다.', 'error');
+        return;
+    }
+
+    // 📌 권한 확인: 자신의 항공편만 수정 가능
+    if (flight.user_id && flight.user_id !== userId) {
+        console.error(`❌ 권한 없음: 다른 사용자의 항공편`);
+        showToast('❌ 다른 사용자의 항공편입니다.', 'error');
+        return;
+    }
+
+    console.log(`✏️  항공편 수정: ${flight.callsign}`);
+
+    const newCallsign = prompt('항공편명:', flight.callsign);
+    if (!newCallsign) return;
+
+    const newEobt = prompt('EOBT (HHMM):', flight.eobt || flight.eobt_utc);
+    if (!newEobt) return;
+
+    const newCfl = prompt('CFL:', flight.cfl);
+    if (!newCfl) return;
+
+    try {
+        // 📌 자신의 항공편만 수정
+        db.run(`
+            UPDATE flights
+            SET callsign = ?, eobt_utc = ?, cfl = ?
+            WHERE id = ? AND user_id = ?
+        `, [newCallsign, newEobt, newCfl, flightId, userId]);
+
+        saveDatabase();
+
+        flight.callsign = newCallsign;
+        flight.eobt = newEobt;
+        flight.eobt_utc = newEobt;
+        flight.cfl = newCfl;
+
+        console.log(`✅ 항공편 수정 완료: ${flight.callsign}`);
+        showToast(`✅ 항공편 수정 완료`, 'success');
+
+        loadFlightsForDate(selectedDate);
+
+    } catch (error) {
+        console.error('❌ 항공편 수정 실패:', error);
+        showToast('❌ 항공편 수정 실패', 'error');
+    }
+}
+
+function deleteFlightRecord(flightId) {
+    const userId = localStorage.getItem('y711_user_id');
+    const username = getCurrentUser();
+
+    const flight = allFlights.find(f => f.id === flightId);
+
+    if (!flight) {
+        showToast('❌ 항공편을 찾을 수 없습니다.', 'error');
+        return;
+    }
+
+    // 📌 권한 확인: 자신의 항공편만 삭제 가능
+    if (flight.user_id && flight.user_id !== userId) {
+        console.error(`❌ 권한 없음: 다른 사용자의 항공편`);
+        showToast('❌ 다른 사용자의 항공편입니다.', 'error');
+        return;
+    }
+
+    const confirmed = confirm(`${flight.callsign}을 삭제하시겠습니까?`);
+    if (!confirmed) return;
+
+    console.log(`🗑️  항공편 삭제: ${flight.callsign}`);
+
+    try {
+        // 📌 자신의 항공편만 삭제
+        db.run(`
+            DELETE FROM flights
+            WHERE id = ? AND user_id = ?
+        `, [flightId, userId]);
+
+        db.run(`
+            DELETE FROM ctot_calculations
+            WHERE flight_id = ? AND user_id = ?
+        `, [flightId, userId]);
+
+        saveDatabase();
+
+        allFlights = allFlights.filter(f => f.id !== flightId);
+
+        console.log(`✅ 항공편 삭제 완료: ${flight.callsign}`);
+        showToast(`✅ ${flight.callsign} 삭제 완료`, 'success');
+
+        loadFlightsForDate(selectedDate);
+
+    } catch (error) {
+        console.error('❌ 항공편 삭제 실패:', error);
+        showToast('❌ 항공편 삭제 실패', 'error');
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

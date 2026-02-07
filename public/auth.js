@@ -110,13 +110,20 @@ function completeLogin(username) {
     const sessionTimeout = (process.env.SESSION_TIMEOUT_MINUTES || 30) * 60 * 1000; // Convert to milliseconds
     const expiresAt = new Date(now.getTime() + sessionTimeout);
 
+    // 📌 사용자별 독립 시스템: user_id 저장 (username을 user_id로 사용)
+    const userId = username;
+
     localStorage.setItem('y711_session', sessionToken);
     localStorage.setItem('y711_user', username);
+    localStorage.setItem('y711_user_id', userId);           // ← 추가: user_id 저장
     localStorage.setItem('y711_login_time', now.toISOString());
     localStorage.setItem('y711_session_expires_at', expiresAt.toISOString());
 
     // Initialize activity timestamp for idle timeout tracking
     localStorage.setItem('y711_last_activity', now.toISOString());
+
+    console.log(`✅ 로그인 완료: ${username} (user_id: ${userId})`);
+    console.log(`👤 사용자별 독립 환경 준비 완료`);
 
     // Start session timeout check interval (every 1 minute)
     startSessionTimeoutCheck();
@@ -171,10 +178,13 @@ function logout() {
     // Clear all session data
     localStorage.removeItem('y711_session');
     localStorage.removeItem('y711_user');
+    localStorage.removeItem('y711_user_id');        // ← 추가: user_id 제거
     localStorage.removeItem('y711_login_time');
     localStorage.removeItem('y711_session_expires_at');
     localStorage.removeItem('y711_last_activity');
     localStorage.removeItem('y711_password_hash');
+
+    console.log('✅ 로그아웃 완료');
 
     // Redirect to login page
     window.location.href = '/login.html';
