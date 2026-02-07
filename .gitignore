@@ -3,3 +3,14 @@ dist/
 .DS_Store
 *.log
 .vscode/
+
+# Environment variables - NEVER commit to git
+.env
+.env.local
+.env.*.local
+
+# Sensitive files
+*.pem
+*.key
+certs/
+secrets/

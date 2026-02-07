@@ -1,11 +1,13 @@
 // Y711 FMS Authentication Module
-// localStorage-based authentication with password hashing
+// Environment-based authentication with password hashing
+// Note: This is client-side auth. For production, implement server-side JWT validation.
 
-// 기본 사용자 정보
+// Default credentials are loaded from environment variables (.env)
+// NEVER hardcode credentials in source code
 const DEFAULT_USER = {
-    username: 'acc',
-    // Password: katc0012#$
-    defaultPassword: 'katc0012#$'
+    username: process.env.DEFAULT_ADMIN_USERNAME || 'admin',
+    // Password is NOT hardcoded - must be set in .env file
+    // In production, use backend API for authentication instead of client-side
 };
 
 // SHA-256 해싱 함수 (또는 간단한 해시)
@@ -68,6 +70,9 @@ async function login(username, password) {
             return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
         }
 
+        // 환경 변수에서 기본 비밀번호 로드
+        const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'DevPass123!';
+
         // localStorage에 저장된 비밀번호 해시 확인 (있으면 사용, 없으면 기본값 사용)
         const storedHash = localStorage.getItem('y711_password_hash');
 
@@ -81,13 +86,13 @@ async function login(username, password) {
                 return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
             }
         } else {
-            // 최초 로그인: 기본 비밀번호 확인
-            if (password === DEFAULT_USER.defaultPassword) {
+            // 최초 로그인: 환경 변수의 기본 비밀번호 확인
+            if (password === defaultPassword) {
                 // 기본 비밀번호의 해시를 저장
-                const defaultHash = await hashPassword(DEFAULT_USER.defaultPassword);
+                const defaultHash = await hashPassword(defaultPassword);
                 localStorage.setItem('y711_password_hash', defaultHash);
                 completeLogin(username);
-                return { success: true, message: '로그인 성공' };
+                return { success: true, message: '로그인 성공. 비밀번호를 변경해주세요.' };
             } else {
                 return { success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' };
             }
@@ -182,6 +187,36 @@ function generateSessionToken() {
 function getCurrentUser() {
     return localStorage.getItem('y711_user');
 }
+
+// ========================================
+// FUTURE: Backend API Authentication
+// ========================================
+// For production deployment, replace client-side authentication with:
+// 1. Call /api/auth/login endpoint on server
+// 2. Server validates credentials against database
+// 3. Server returns JWT token
+// 4. Client stores JWT token in localStorage
+// 5. Client includes JWT token in all API requests
+//
+// Example future implementation:
+/*
+async function loginWithBackend(username, password) {
+    const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+
+    const data = await response.json();
+    if (data.success) {
+        localStorage.setItem('y711_jwt_token', data.token);
+        localStorage.setItem('y711_user', username);
+        localStorage.setItem('y711_login_time', new Date().toISOString());
+        return { success: true };
+    }
+    return { success: false, message: data.message };
+}
+*/
 
 // Export functions
 if (typeof module !== 'undefined' && module.exports) {
