@@ -101,8 +101,11 @@ export function recalcAll(flights) {
 
                 // 이 이전편과 충돌이 없어질 때까지 tentative를 올리고 재계산 반복
                 let adjusted = true;
-                while (adjusted) {
+                let iter = 0;
+                const MAX_ITER = 20;
+                while (adjusted && iter < MAX_ITER) {
                     adjusted = false;
+                    iter++;
                     const myWps = calcWaypoints(flight, tentative);
                     for (const myWp of myWps) {
                         const zone = zones.find(z => z.waypoint === myWp.name);
@@ -117,6 +120,9 @@ export function recalcAll(flights) {
                             break; // tentative가 바뀌었으므로 myWps 재계산
                         }
                     }
+                }
+                if (iter === MAX_ITER) {
+                    console.warn(`[ctotEngine] CTOT 수렴 실패: flight ${flight.id}, tentative=${tentative}`);
                 }
             }
         }

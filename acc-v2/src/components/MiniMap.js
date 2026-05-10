@@ -3,6 +3,7 @@
  * 노드 좌표/경로 설정: src/config/miniMapGeo.js
  */
 import { MAP_W as W, MAP_H as H, AIRPORT_COLOR, AIRPORT_BG, GEO, ROUTES, ROUTE_MAP } from '../config/miniMapGeo.js';
+import { secToTime, formatDisplay, escapeHtml } from '../utils/timeUtils.js';
 
 const ZOOM_LEVELS = [1, 1.5, 2, 3, 4];
 
@@ -99,10 +100,10 @@ export class MiniMap {
         layer.innerHTML = this._simDots.map(d => `
             <circle cx="${d.x.toFixed(1)}" cy="${d.y.toFixed(1)}" r="5"
                 fill="${d.color}" opacity="0.92" stroke="#fff" stroke-width="1.2">
-                <title>${d.callsign}</title>
+                <title>${escapeHtml(d.callsign)}</title>
             </circle>
             <text x="${(d.x + 7).toFixed(1)}" y="${(d.y + 4).toFixed(1)}"
-                fill="${d.color}" font-size="8" font-family="monospace">${d.callsign}</text>
+                fill="${d.color}" font-size="8" font-family="monospace">${escapeHtml(d.callsign)}</text>
         `).join('');
     }
 
@@ -147,7 +148,7 @@ export class MiniMap {
                     const tx = p.side === 'left' ? p.x - r - 2 : p.x + r + 2;
                     const anchor = p.side === 'left' ? 'end' : 'start';
                     const flightsHere = this.flights.filter(f => f.dept === id && f.status !== 'DEP');
-                    const tip = flightsHere.length ? `${id}: ${flightsHere.map(f=>f.callsign).join(', ')}` : id;
+                    const tip = flightsHere.length ? `${id}: ${flightsHere.map(f => escapeHtml(f.callsign)).join(', ')}` : id;
                     const badge = flightsHere.length > 0 ? `
                         <circle cx="${p.x + (p.side === 'left' ? r - 2 : -(r - 2))}" cy="${p.y - r + 2}" r="6"
                             fill="${ac}" opacity="0.9"/>
@@ -176,7 +177,7 @@ export class MiniMap {
                     const flightsHere = this.flights.filter(f =>
                         (f.routeWaypoints || []).some(w => w.name === id)
                     );
-                    const tip = isConflict ? `⚠ 충돌: ${id}` : `${id} — ${flightsHere.map(f=>f.callsign).join(', ') || '없음'}`;
+                    const tip = isConflict ? `⚠ 충돌: ${id}` : `${id} — ${flightsHere.map(f => escapeHtml(f.callsign)).join(', ') || '없음'}`;
                     return `<g class="mm-wp" data-wp="${id}" style="cursor:${flightsHere.length ? 'pointer' : 'default'}">
                         <polygon points="${p.x},${p.y - sz} ${p.x + sz},${p.y} ${p.x},${p.y + sz} ${p.x - sz},${p.y}"
                             fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
@@ -195,6 +196,7 @@ export class MiniMap {
             }).join('')}
 
             ${this._drawSelectedRoute()}
+            ${this._drawWaypointTimes()}
             ${this._zoom() === 1 ? this._drawLegend() : ''}
         </svg>`;
 
@@ -356,13 +358,63 @@ export class MiniMap {
         return this.conflicts.some(c => c.zone === waypoint);
     }
 
+    _drawWaypointTimes() {
+        if (!this.selectedId) return '';
+        const f = this.flights.find(fl => fl.id === this.selectedId);
+        if (!f) return '';
+
+        const wps = f.routeWaypoints || [];
+        if (!wps.length && !f.ctot && !f.atd) return '';
+
+        const ac = AIRPORT_COLOR[f.dept] || '#4fc3f7';
+        const labels = [];
+
+        // 출발 공항에 CTOT/ATD 표시
+        const deptGeo = GEO[f.dept];
+        if (deptGeo) {
+            const t = f.atd || f.ctot;
+            const display0 = formatDisplay(t);
+            if (display0 !== '--:--') {
+                const display = display0;
+                const r = 9;
+                const tx = deptGeo.side === 'left' ? deptGeo.x - r - 2 : deptGeo.x + r + 2;
+                const anchor = deptGeo.side === 'left' ? 'end' : 'start';
+                const lbl = f.atd ? `ATD ${display}` : `CTOT ${display}`;
+                labels.push(`<text x="${tx}" y="${deptGeo.y + 28}" text-anchor="${anchor}"
+                    fill="${ac}" font-size="9" font-family="monospace" font-weight="bold" opacity="0.95">${lbl}</text>`);
+            }
+        }
+
+        // 각 웨이포인트 통과 시각 표시
+        for (const wp of wps) {
+            const geo = GEO[wp.name];
+            if (!geo) continue;
+            const display = formatDisplay(secToTime(wp.timeSec));
+
+            if (geo.type === 'conv') {
+                const sz = wp.name === 'BULTI' ? 5 : 7;
+                labels.push(`<text x="${geo.x + sz + 4}" y="${geo.y + 16}"
+                    fill="${ac}" font-size="9" font-family="monospace" opacity="0.95">${display}</text>`);
+            } else if (geo.type === 'junction') {
+                labels.push(`<text x="${geo.x + 8}" y="${geo.y + 4}"
+                    fill="${ac}" font-size="9" font-family="monospace" opacity="0.95">${display}</text>`);
+            } else if (geo.type === 'dest') {
+                const sz = 8;
+                labels.push(`<text x="${geo.x + sz + 4}" y="${geo.y + 26}"
+                    fill="${ac}" font-size="9" font-family="monospace" opacity="0.95">ETA ${display}</text>`);
+            }
+        }
+
+        return labels.join('');
+    }
+
     _drawSelectedRoute() {
         const apt = this._getActiveAirport();
         if (!apt) return '';
         const ac = AIRPORT_COLOR[apt] || '#4fc3f7';
         // 항공편이 있으면 콜사인도 표시
         const f = this.selectedId ? this.flights.find(fl => fl.id === this.selectedId) : null;
-        const label = f ? `${f.callsign} ${apt}→RKPC` : `${apt}→RKPC`;
+        const label = f ? `${escapeHtml(f.callsign)} ${escapeHtml(apt)}→RKPC` : `${escapeHtml(apt)}→RKPC`;
         return `<text x="10" y="${H - 10}" fill="${ac}" font-size="10" font-family="monospace" font-weight="bold">${label}</text>`;
     }
 }
