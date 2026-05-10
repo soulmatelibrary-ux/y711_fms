@@ -16,7 +16,7 @@ import { ConflictWatchlist } from './src/components/ConflictWatchlist.js';
 import { SettingsModal } from './src/components/SettingsModal.js';
 import { AuditTimeline } from './src/components/AuditTimeline.js';
 import { ConflictWizard } from './src/components/ConflictWizard.js';
-import { formatHHMMSS, nowUtcSec, secToTime, timeToSec, escapeHtml } from './src/utils/timeUtils.js';
+import { formatHHMMSS, nowUtcSec, nowUtcTime, secToTime, timeToSec, escapeHtml } from './src/utils/timeUtils.js';
 import { showToast } from './src/utils/toast.js';
 import { computeSimPositions } from './src/services/simulationBridge.js';
 import { debounce } from './src/utils/debounce.js';
@@ -36,6 +36,8 @@ const state = {
     flights: [],
     prevFlights: [],
     conflicts: [],
+    conflictArmed: false,
+    setNowTarget: null,
     auditLog: [],
     whatifEngine: null,
     airportRefTimes: { RKSS: null, RKTU: null, RKJK: null, RKJJ: null }
@@ -44,10 +46,44 @@ const state = {
 // ============================================================
 // 컴포넌트 참조
 // ============================================================
-let ribbon, miniMap, inspector, queue, watchlist, audit, conflictWizard, settingsModal;
+let ribbon, miniMap, popupMap, inspector, queue, watchlist, audit, conflictWizard, settingsModal;
 let _conflictQuickCardEl = null;
 let _conflictQuickCardOutsideHandler = null;
 let _clockTimer = null;
+let _liveMapMode = 'geo';
+function _getMiniMapAirportFlights(icao) {
+    const now = nowUtcSec();
+    const window60 = 60 * 60;
+    return (state.flights || [])
+        .filter(f => f.dept === icao && f.status !== 'DEP')
+        .filter(f => {
+            const ctotSec = timeToSec(f.ctot || f.eobt);
+            return ctotSec >= now - 5 * 60 && ctotSec <= now + window60;
+        })
+        .sort((a, b) => timeToSec(a.eobt || a.ctot) - timeToSec(b.eobt || b.ctot));
+}
+
+const ALT_AIRPORT_POS = {
+    RKSS: { x: 140,  y: 680, color: '#58a6ff' },
+    RKTU: { x: 300,  y: 680, color: '#bc8cff' },
+    RKJK: { x: 520,  y: 680, color: '#39c5bb' },
+    RKJJ: { x: 700,  y: 680, color: '#d29922' },
+    RKPC: { x: 1460, y: 680, color: '#ff6b6b' },
+};
+
+const ALT_WAYPOINT_POS = {
+    BULTI: 250,
+    MEKIL: 350,
+    GONAX: 450,
+    BEDES: 550,
+    ELPOS: 660,
+    JNKR:  620,
+    MANGI: 760,
+    DALSU: 860,
+    NULDI: 980,
+    DOTOL: 1080,
+    RKPC:  1460,
+};
 
 // ============================================================
 // 초기화
@@ -86,7 +122,7 @@ async function init() {
         // CTOT 초기 계산
         state.flights = recalcAll(rawFlights);
         state.prevFlights = state.flights.map(f => ({ ...f }));
-        state.conflicts = detectConflicts(state.flights);
+        _recomputeConflicts();
         state.whatifEngine = new WhatifEngine(state.flights);
 
         // atdManager 초기화
@@ -118,6 +154,7 @@ function renderApp() {
         <span class="h-title">✈ ACC ATD v2</span>
         <span class="h-clock" id="clock">--:--:--</span>
         <span class="h-badge badge-conflicts zero" id="badge-conflicts" title="클릭 시 Watchlist 첫 항목으로 포커스">충돌 0</span>
+        <span class="h-badge badge-setnow" id="badge-setnow" title="가장 최근 SET NOW 기준편">SET NOW 미지정</span>
         <span class="h-badge badge-whatif" id="badge-whatif" title="What-if 모드 토글">WHAT-IF</span>
         <span class="h-spacer"></span>
         <span class="h-user" id="h-user-label"></span>
@@ -128,6 +165,7 @@ function renderApp() {
         <button class="btn-excel" id="btn-export-excel" title="현재 항공기 목록 Excel 저장">항공기 익스포트</button>
         <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none" />
         <a class="btn-main-link" href="/" target="_blank" title="메인 시스템에서 Excel 업로드">↗ 스케줄</a>
+        <button class="btn-audit-toggle" id="btn-audit-toggle" title="Audit Timeline">📋</button>
         <button class="btn-settings" id="btn-settings" title="시간 설정">⚙</button>
         <button class="btn-help" id="btn-help" title="도움말 (?)">?</button>
         <span class="h-logout" id="btn-logout">로그아웃</span>
@@ -149,10 +187,24 @@ function renderApp() {
 
     <div id="alert-bar"></div>
 
-    <div id="main-area">
-        <div id="ribbon-wrap">
-            <canvas id="ribbon-canvas"></canvas>
+    <div id="content-area">
+        <div id="left-col">
+            <div id="ribbon-wrap">
+                <canvas id="ribbon-canvas"></canvas>
+            </div>
+            <div id="splitter"></div>
+            <div id="bottom-panel">
+                <div class="bp-section">
+                    <div class="bp-header">DEPARTURE QUEUE — NOW+60분</div>
+                    <div class="bp-body" id="queue-body"></div>
+                </div>
+                <div class="bp-section">
+                    <div class="bp-header">CONFLICT WATCHLIST</div>
+                    <div class="bp-body wl-body" id="watchlist-body"></div>
+                </div>
+            </div>
         </div>
+        <div id="v-splitter"></div>
         <div id="right-panel">
             <div class="rp-section rp-section-map">
                 <span>MINI MAP</span>
@@ -161,26 +213,11 @@ function renderApp() {
                     <span class="mm-zoom-label" id="mm-zoom-label">1×</span>
                     <button class="btn-mm-zoom" id="mm-zoom-in" title="확대 (휠↑)">+</button>
                     <button class="btn-mm-zoom btn-mm-reset" id="mm-zoom-reset" title="전체 보기">⟲</button>
+                    <button class="btn-mm-alt" id="mm-alt-view" title="고도기반 뷰 토글">ALT</button>
+                    <button class="btn-live-map" id="btn-live-map" title="Live Route Map 팝업">⛶</button>
                 </div>
             </div>
             <div id="minimap-container"></div>
-        </div>
-    </div>
-
-    <div id="splitter"></div>
-
-    <div id="bottom-panel">
-        <div class="bp-section">
-            <div class="bp-header">DEPARTURE QUEUE — NOW±30분</div>
-            <div class="bp-body" id="queue-body"></div>
-        </div>
-        <div class="bp-section">
-            <div class="bp-header">CONFLICT WATCHLIST</div>
-            <div class="bp-body wl-body" id="watchlist-body"></div>
-        </div>
-        <div class="bp-section">
-            <div class="bp-header">AUDIT TIMELINE</div>
-            <div class="bp-body" id="audit-body"></div>
         </div>
     </div>`;
 
@@ -190,7 +227,7 @@ function renderApp() {
 
     // 컴포넌트 초기화
     const canvas = document.getElementById('ribbon-canvas');
-    resizeCanvas(canvas);
+    resizeCanvas();
 
     inspector = new Inspector();
 
@@ -203,17 +240,148 @@ function renderApp() {
     });
     ribbon.setFlights(state.flights);
     ribbon.setConflicts(state.conflicts);
+    // 렌더 직후 캔버스 높이를 리본 고유 높이로 고정해 하단 공백/깜빡임을 방지
+    ribbon.resize();
 
-    miniMap = new MiniMap(document.getElementById('minimap-container'), { onFlightSelect });
+    miniMap = new MiniMap(document.getElementById('minimap-container'), {
+        onFlightSelect,
+        getAirportFlights: _getMiniMapAirportFlights
+    });
     miniMap.setFlights(state.flights);
     miniMap.setConflicts(state.conflicts);
+
+    // Live Route Map 팝업 모달 생성
+    const liveMapModal = document.createElement('div');
+    liveMapModal.id = 'live-map-modal';
+    liveMapModal.className = 'live-map-modal';
+    liveMapModal.innerHTML = `
+        <div class="live-map-popup">
+            <div class="live-map-header">
+                <span class="live-map-title" id="live-map-title">LIVE ROUTE MAP</span>
+                <div class="mm-zoom-controls" id="live-map-geo-controls">
+                    <button class="btn-mm-zoom" id="lm-zoom-out" title="축소 (휠↓)">−</button>
+                    <span class="mm-zoom-label" id="lm-zoom-label">1×</span>
+                    <button class="btn-mm-zoom" id="lm-zoom-in" title="확대 (휠↑)">+</button>
+                    <button class="btn-mm-zoom btn-mm-reset" id="lm-zoom-reset" title="전체 보기">⟲</button>
+                    <button class="btn-mm-alt" id="lm-alt-view" title="고도기반 뷰 토글">ALT</button>
+                </div>
+                <div class="live-map-alt-controls" id="live-map-alt-controls" style="display:none">
+                    <button class="btn-live-mini" id="lm-alt-full">Full View</button>
+                    <div class="live-map-clock"><span>UTC</span><strong id="lm-alt-clock">0000</strong></div>
+                    <button class="btn-live-ctrl" id="lm-alt-prev">⏮</button>
+                    <button class="btn-live-ctrl main" id="lm-alt-play">▶</button>
+                    <button class="btn-live-ctrl" id="lm-alt-stop">⏹</button>
+                    <button class="btn-live-ctrl" id="lm-alt-next">⏭</button>
+                    <select class="live-map-speed" id="lm-alt-speed">
+                        <option value="20">1x</option>
+                        <option value="40">2x</option>
+                        <option value="60">5x</option>
+                        <option value="90">10x</option>
+                    </select>
+                </div>
+                <button class="live-map-close" id="btn-live-map-close">✕</button>
+            </div>
+            <div id="live-map-container">
+                <div id="live-map-mini-wrap"></div>
+                <div id="live-map-alt-wrap" style="display:none"></div>
+            </div>
+        </div>`;
+    document.body.appendChild(liveMapModal);
+
+    popupMap = new MiniMap(document.getElementById('live-map-mini-wrap'), {
+        onFlightSelect,
+        zoomInId:    'lm-zoom-in',
+        zoomOutId:   'lm-zoom-out',
+        zoomResetId: 'lm-zoom-reset',
+        zoomLabelId: 'lm-zoom-label',
+        altitudeToggleId: 'lm-alt-view'
+    });
+    popupMap.setFlights(state.flights);
+    popupMap.setConflicts(state.conflicts);
+
+    const setLiveMapMode = (mode = 'geo') => {
+        _liveMapMode = mode;
+        const title = document.getElementById('live-map-title');
+        const geoControls = document.getElementById('live-map-geo-controls');
+        const altControls = document.getElementById('live-map-alt-controls');
+        const miniWrap = document.getElementById('live-map-mini-wrap');
+        const altWrap = document.getElementById('live-map-alt-wrap');
+
+        if (title) title.textContent = mode === 'alt' ? 'LIVE ROUTE MAP · ALTITUDE' : 'LIVE ROUTE MAP';
+        if (geoControls) geoControls.style.display = mode === 'alt' ? 'none' : 'flex';
+        if (altControls) altControls.style.display = mode === 'alt' ? 'flex' : 'none';
+        if (miniWrap) miniWrap.style.display = mode === 'alt' ? 'none' : 'block';
+        if (altWrap) altWrap.style.display = mode === 'alt' ? 'block' : 'none';
+
+        if (mode === 'alt') {
+            popupMap.setAltitudeView(false);
+            _renderLiveMapAlt(simState.simTimeSec || nowUtcSec());
+        }
+    };
+
+    const openLiveMap = (mode = 'geo') => {
+        liveMapModal.classList.add('visible');
+        popupMap.resetZoom();
+        if (!simState._realNowSec) {
+            simState._realNowSec = nowUtcSec();
+            simState.simTimeSec = simState._realNowSec;
+        }
+        setLiveMapMode(mode);
+    };
+
+    document.getElementById('btn-live-map').addEventListener('click', () => {
+        openLiveMap('geo');
+    });
+    document.getElementById('mm-alt-view')?.addEventListener('click', () => {
+        openLiveMap('alt');
+    });
+    document.getElementById('lm-alt-view')?.addEventListener('click', () => {
+        setLiveMapMode('alt');
+    });
+    document.getElementById('lm-alt-prev')?.addEventListener('click', () => {
+        simState.simTimeSec = Math.max(0, (simState.simTimeSec || nowUtcSec()) - 300);
+        simState.lastTs = null;
+        _applySimTime();
+    });
+    document.getElementById('lm-alt-next')?.addEventListener('click', () => {
+        simState.simTimeSec = Math.min(86399, (simState.simTimeSec || nowUtcSec()) + 300);
+        simState.lastTs = null;
+        _applySimTime();
+    });
+    document.getElementById('lm-alt-play')?.addEventListener('click', () => {
+        toggleSimPlay();
+        _renderLiveMapAlt(simState.simTimeSec || nowUtcSec());
+    });
+    document.getElementById('lm-alt-stop')?.addEventListener('click', () => {
+        _stopSimLoop();
+        if (simState._realNowSec) simState.simTimeSec = simState._realNowSec;
+        simState.lastTs = null;
+        _applySimTime();
+    });
+    document.getElementById('lm-alt-speed')?.addEventListener('change', (e) => {
+        simState.speed = parseInt(e.target.value, 10) || 20;
+    });
+    document.getElementById('lm-alt-full')?.addEventListener('click', () => {
+        liveMapModal.classList.toggle('alt-full');
+    });
+    document.getElementById('btn-live-map-close').addEventListener('click', () => {
+        liveMapModal.classList.remove('alt-full');
+        liveMapModal.classList.remove('visible');
+    });
+    liveMapModal.addEventListener('click', (e) => {
+        if (e.target === liveMapModal) {
+            liveMapModal.classList.remove('alt-full');
+            liveMapModal.classList.remove('visible');
+        }
+    });
 
     queue = new DepartureQueue(document.getElementById('queue-body'), {
         onFlightSelect,
         onFlightDblClick,
-        onSetAirportRef: applyAirportRef,
+        onSetAirportRef: (icao) => applyAirportRef(icao),
         onClearAirportRef: clearAirportRef,
-        getAirportRefTimes: () => state.airportRefTimes
+        getAirportRefTimes: () => state.airportRefTimes,
+        onSetAirportRefByFlight: (icao, eobt) => applyAirportRef(icao, eobt)
     });
     queue.setFlights(state.flights);
     queue.setConflicts(state.conflicts);
@@ -226,33 +394,327 @@ function renderApp() {
         }
     });
     watchlist.update(state.conflicts);
+        conflictWizard = new ConflictWizard();
+    conflictWizard.setFlights(state.flights);
+
+    settingsModal = new SettingsModal();
+
+    // Audit Timeline 팝업 모달 생성
+    const auditModal = document.createElement('div');
+    auditModal.id = 'audit-modal';
+    auditModal.className = 'audit-modal';
+    auditModal.innerHTML = `
+        <div class="audit-popup">
+            <div class="audit-popup-header">
+                <span class="audit-popup-title">AUDIT TIMELINE</span>
+                <button class="audit-popup-close" id="btn-audit-close">✕</button>
+            </div>
+            <div class="bp-body" id="audit-body"></div>
+        </div>`;
+    document.body.appendChild(auditModal);
+
+    // AuditTimeline은 모달이 DOM에 추가된 후 초기화
     audit = new AuditTimeline(document.getElementById('audit-body'), {
         onFlightSelect: (flightId) => {
             const f = state.flights.find(fl => fl.id === flightId);
             if (f) onFlightSelect(f);
         }
     });
-    conflictWizard = new ConflictWizard();
-    conflictWizard.setFlights(state.flights);
 
-    settingsModal = new SettingsModal();
+    document.getElementById('btn-audit-toggle').addEventListener('click', () => {
+        auditModal.classList.toggle('visible');
+    });
+    document.getElementById('btn-audit-close').addEventListener('click', () => {
+        auditModal.classList.remove('visible');
+    });
+    auditModal.addEventListener('click', (e) => {
+        if (e.target === auditModal) auditModal.classList.remove('visible');
+    });
 
     updateBadges();
     setupAlertBarEvents(); // Alert Bar 이벤트 위임 1회 등록
     setupSplitter();
+    setupVSplitter();
     setupSimEvents(); // 시뮬레이션 슬라이더/속도 리스너 1회만 등록
-    window.addEventListener('resize', debounce(() => resizeCanvas(canvas), 150));
+    window.addEventListener('resize', debounce(resizeCanvas, 150));
 
     // 첫 방문 코치마크 (렌더 직후)
     requestAnimationFrame(showCoachmarks);
 }
 
-function resizeCanvas(canvas) {
+function resizeCanvas() {
     const wrap = document.getElementById('ribbon-wrap');
-    if (!wrap) return;
+    const canvas = document.getElementById('ribbon-canvas');
+    if (!wrap || !canvas) return;
     canvas.width = wrap.clientWidth;
+    if (ribbon) {
+        ribbon.resize();
+        return;
+    }
     canvas.height = wrap.clientHeight || 500;
-    if (ribbon) ribbon.resize();
+}
+
+function _setConflicts(nextConflicts = []) {
+    state.conflicts = state.conflictArmed ? (nextConflicts || []) : [];
+}
+
+function _recomputeConflicts() {
+    _setConflicts(detectConflicts(state.flights));
+}
+
+// 비행레벨(FL) → SVG y 좌표 변환 (ground=680, top=60, max FL400)
+function _flToY(fl) {
+    return 680 - (fl / 400) * 620;
+}
+
+function _buildLiveMapAltBase() {
+    const wrap = document.getElementById('live-map-alt-wrap');
+    if (!wrap || wrap.dataset.ready === '1') return;
+    wrap.innerHTML = `
+        <svg id="live-map-alt-svg" viewBox="0 0 1600 980" preserveAspectRatio="none">
+            <rect x="0" y="0" width="1600" height="980" fill="#0d1117"/>
+
+            <!-- FL 그리드 (y축 고도 기준선) — y = 680 - (fl/400)*620 -->
+            <g id="live-map-alt-grid">
+                <line x1="60" y1="138" x2="1580" y2="138" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4,8"/>
+                <text x="50" y="142" text-anchor="end" fill="rgba(255,255,255,0.38)" font-size="9" font-family="monospace">FL350</text>
+                <line x1="60" y1="215" x2="1580" y2="215" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="4,8"/>
+                <text x="50" y="219" text-anchor="end" fill="rgba(255,255,255,0.32)" font-size="9" font-family="monospace">FL300</text>
+                <line x1="60" y1="293" x2="1580" y2="293" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4,8"/>
+                <text x="50" y="297" text-anchor="end" fill="rgba(255,255,255,0.28)" font-size="9" font-family="monospace">FL250</text>
+                <line x1="60" y1="370" x2="1580" y2="370" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4,8"/>
+                <text x="50" y="374" text-anchor="end" fill="rgba(255,255,255,0.26)" font-size="9" font-family="monospace">FL200</text>
+                <line x1="60" y1="525" x2="1580" y2="525" stroke="rgba(255,255,255,0.05)" stroke-width="1" stroke-dasharray="4,8"/>
+                <text x="50" y="529" text-anchor="end" fill="rgba(255,255,255,0.22)" font-size="9" font-family="monospace">FL100</text>
+            </g>
+
+            <!-- 지상선 -->
+            <g id="live-map-alt-groundline">
+                <line x1="0" y1="680" x2="1600" y2="680" stroke="rgba(255,255,255,0.28)" stroke-width="1.5"/>
+                <rect x="0" y="680" width="1600" height="60" fill="rgba(255,255,255,0.025)"/>
+            </g>
+
+            <!-- 수직 점선 (웨이포인트/공항 위치 표시) -->
+            <g id="live-map-alt-vlines">
+                <line x1="140"  y1="60" x2="140"  y2="680" stroke="rgba(88,166,255,0.22)"  stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="250"  y1="60" x2="250"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="300"  y1="60" x2="300"  y2="680" stroke="rgba(188,140,255,0.22)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="350"  y1="60" x2="350"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="450"  y1="60" x2="450"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="520"  y1="60" x2="520"  y2="680" stroke="rgba(57,197,187,0.22)"  stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="550"  y1="60" x2="550"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="620"  y1="60" x2="620"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="660"  y1="60" x2="660"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="700"  y1="60" x2="700"  y2="680" stroke="rgba(210,153,34,0.22)"  stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="760"  y1="60" x2="760"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="860"  y1="60" x2="860"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="980"  y1="60" x2="980"  y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="1080" y1="60" x2="1080" y2="680" stroke="rgba(255,255,255,0.13)" stroke-width="1" stroke-dasharray="3,7"/>
+                <line x1="1460" y1="60" x2="1460" y2="680" stroke="rgba(255,107,107,0.22)" stroke-width="1" stroke-dasharray="3,7"/>
+            </g>
+
+            <!-- 웨이포인트 (FL350 라인, y=134) -->
+            <g id="live-map-alt-waypoints">
+                <rect x="246" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="250"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">BULTI</text>
+                <rect x="346" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="350"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">MEKIL</text>
+                <rect x="446" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="450"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">GONAX</text>
+                <rect x="546" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="550"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">BEDES</text>
+                <rect x="616" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="620"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">JNKR</text>
+                <rect x="656" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="660"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">ELPOS</text>
+                <rect x="756" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="760"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">MANGI</text>
+                <rect x="856" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="860"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">DALSU</text>
+                <rect x="976" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="980"  y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">NULDI</text>
+                <rect x="1076" y="134" width="8" height="8" fill="#ffd700" opacity="0.65"/><text x="1080" y="129" text-anchor="middle" fill="#ffd700" font-size="9" font-family="monospace" opacity="0.85">DOTOL</text>
+            </g>
+
+            <!-- 공항 (지상선 y=680, 레이블 y=703) -->
+            <g id="live-map-alt-airports">
+                <circle cx="140"  cy="680" r="12" fill="#58a6ff" opacity="0.85"/><text x="140"  y="703" text-anchor="middle" fill="#d8e9ff" font-size="11" font-family="monospace" font-weight="bold">RKSS</text>
+                <circle cx="300"  cy="680" r="12" fill="#bc8cff" opacity="0.85"/><text x="300"  y="703" text-anchor="middle" fill="#f0dcff" font-size="11" font-family="monospace" font-weight="bold">RKTU</text>
+                <circle cx="520"  cy="680" r="12" fill="#39c5bb" opacity="0.85"/><text x="520"  y="703" text-anchor="middle" fill="#c9f6f1" font-size="11" font-family="monospace" font-weight="bold">RKJK</text>
+                <circle cx="700"  cy="680" r="12" fill="#d29922" opacity="0.85"/><text x="700"  y="703" text-anchor="middle" fill="#ffe2a4" font-size="11" font-family="monospace" font-weight="bold">RKJJ</text>
+                <circle cx="1460" cy="680" r="12" fill="#ff6b6b" opacity="0.85"/><text x="1460" y="703" text-anchor="middle" fill="#ffd3d3" font-size="11" font-family="monospace" font-weight="bold">RKPC</text>
+            </g>
+
+            <!-- 위도 축 (x축) -->
+            <g id="live-map-alt-lataxis">
+                <line x1="0" y1="740" x2="1600" y2="740" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+                <text x="50" y="768" text-anchor="end" fill="rgba(255,255,255,0.30)" font-size="9" font-family="monospace">LAT</text>
+                <!-- 공항 위도 -->
+                <text x="140"  y="768" text-anchor="middle" fill="rgba(88,166,255,0.78)"  font-size="9" font-family="monospace">37.6°N</text>
+                <text x="300"  y="768" text-anchor="middle" fill="rgba(188,140,255,0.78)" font-size="9" font-family="monospace">36.7°N</text>
+                <text x="520"  y="768" text-anchor="middle" fill="rgba(57,197,187,0.78)"  font-size="9" font-family="monospace">35.9°N</text>
+                <text x="700"  y="768" text-anchor="middle" fill="rgba(210,153,34,0.78)"  font-size="9" font-family="monospace">35.1°N</text>
+                <text x="1460" y="768" text-anchor="middle" fill="rgba(255,107,107,0.78)" font-size="9" font-family="monospace">33.5°N</text>
+                <!-- 웨이포인트 위도 -->
+                <text x="250"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">37.0°N</text>
+                <text x="350"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">36.5°N</text>
+                <text x="450"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">36.1°N</text>
+                <text x="550"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">35.8°N</text>
+                <text x="620"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">35.2°N</text>
+                <text x="660"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">35.5°N</text>
+                <text x="760"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">34.7°N</text>
+                <text x="860"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">34.3°N</text>
+                <text x="980"  y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">33.9°N</text>
+                <text x="1080" y="768" text-anchor="middle" fill="rgba(255,215,0,0.55)" font-size="9" font-family="monospace">33.7°N</text>
+            </g>
+
+            <g id="live-map-alt-aircraft"></g>
+        </svg>`;
+    wrap.dataset.ready = '1';
+}
+
+function _computeAltMapAircraftPos(f, sec) {
+    const depSec = timeToSec(f.atd || f.ctot || f.eobt);
+    if (!depSec || sec < depSec) return null;
+
+    const dep = ALT_AIRPORT_POS[f.dept];
+    if (!dep) return null;
+
+    const wp = (f.routeWaypoints || [])
+        .filter(w => Number.isFinite(w.timeSec) && ALT_WAYPOINT_POS[w.name] !== undefined)
+        .map(w => ({ name: w.name, t: w.timeSec, x: ALT_WAYPOINT_POS[w.name] }));
+
+    if (!wp.length) return null;
+
+    const points = [{ name: f.dept, t: depSec, x: dep.x }, ...wp];
+    if (points[points.length - 1].name !== 'RKPC') {
+        points.push({ name: 'RKPC', t: points[points.length - 1].t + 8 * 60, x: ALT_WAYPOINT_POS.RKPC });
+    }
+
+    if (sec > points[points.length - 1].t) return null;
+
+    let x = points[0].x;
+    for (let i = 1; i < points.length; i++) {
+        if (sec <= points[i].t) {
+            const dt = points[i].t - points[i - 1].t;
+            const frac = dt > 0 ? (sec - points[i - 1].t) / dt : 0;
+            x = points[i - 1].x + (points[i].x - points[i - 1].x) * Math.max(0, Math.min(1, frac));
+            break;
+        }
+    }
+
+    const fl = parseInt(String(f.cfl || '').replace(/[^0-9]/g, ''), 10) || 250;
+    const climb = Math.max(0, Math.min(1, (sec - depSec) / (10 * 60)));
+    const groundY = dep.y;
+    const cruiseY = _flToY(fl);  // CFL에 맞는 y좌표
+    const y = groundY - (groundY - cruiseY) * climb;
+
+    return { x, y, fl };
+}
+
+// 두 항공기 간 분리 정보 반환 (충돌 데이터 우선, 다음 공통 웨이포인트 순)
+function _getAltSepInfo(f1, f2, sec) {
+    const conflict = (state.conflicts || []).find(c =>
+        (c.f1.id === f1.id && c.f2.id === f2.id) ||
+        (c.f1.id === f2.id && c.f2.id === f1.id)
+    );
+    if (conflict) return { diffSec: conflict.timeDiffSec, severity: conflict.severity };
+
+    // 다음 공통 웨이포인트에서의 시간 차이
+    const up1 = (f1.routeWaypoints || []).filter(w => w.timeSec > sec);
+    const up2 = (f2.routeWaypoints || []).filter(w => w.timeSec > sec);
+    for (const wp1 of up1) {
+        const wp2 = up2.find(w => w.name === wp1.name);
+        if (wp2) return { diffSec: Math.abs(wp1.timeSec - wp2.timeSec), severity: null };
+    }
+
+    // 폴백: 출발 시각 차이
+    const t1 = timeToSec(f1.atd || f1.ctot || f1.eobt) || 0;
+    const t2 = timeToSec(f2.atd || f2.ctot || f2.eobt) || 0;
+    return { diffSec: Math.abs(t1 - t2), severity: null };
+}
+
+// 항공기 간 점선 + 시간 차 레이블 SVG 생성
+function _buildAltSepLines(visible, sec) {
+    if (visible.length < 2) return '';
+
+    const sorted = [...visible].sort((a, b) => a.pos.x - b.pos.x);
+    const lines = [];
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const { f: fA, pos: pA } = sorted[i];
+        const { f: fB, pos: pB } = sorted[i + 1];
+
+        // 너무 멀리 떨어진 쌍은 표시 안 함 (같은 구간 아님)
+        if (pB.x - pA.x > 650) continue;
+
+        const { diffSec, severity } = _getAltSepInfo(fA, fB, sec);
+        const diffMin = Math.floor(diffSec / 60);
+        const diffSecRem = diffSec % 60;
+
+        const isConflict = severity === 'critical';
+        const isWarning  = severity === 'warning';
+        const color = isConflict ? '#ff3b30' : (isWarning ? '#ff9500' : 'rgba(130,200,255,0.85)');
+
+        // 분리선 y: 두 항공기 중 위쪽(y 작은) 것보다 20px 위
+        const lineY  = Math.min(pA.y, pB.y) - 20;
+        const midX   = (pA.x + pB.x) / 2;
+        const label  = diffMin > 0
+            ? `${isConflict ? '⚠ ' : ''}${diffMin}분 ${String(diffSecRem).padStart(2, '0')}초`
+            : `${isConflict ? '⚠ ' : ''}${diffSecRem}초`;
+        const lblW   = label.length * 5.6 + 10;
+
+        lines.push(`
+            <line x1="${pA.x.toFixed(1)}" y1="${lineY.toFixed(1)}"
+                  x2="${pB.x.toFixed(1)}" y2="${lineY.toFixed(1)}"
+                  stroke="${color}" stroke-width="1.2" stroke-dasharray="5,4" opacity="0.88"/>
+            <line x1="${pA.x.toFixed(1)}" y1="${(lineY-5).toFixed(1)}"
+                  x2="${pA.x.toFixed(1)}" y2="${(lineY+5).toFixed(1)}"
+                  stroke="${color}" stroke-width="1.2" opacity="0.88"/>
+            <line x1="${pB.x.toFixed(1)}" y1="${(lineY-5).toFixed(1)}"
+                  x2="${pB.x.toFixed(1)}" y2="${(lineY+5).toFixed(1)}"
+                  stroke="${color}" stroke-width="1.2" opacity="0.88"/>
+            <rect x="${(midX - lblW/2).toFixed(1)}" y="${(lineY-15).toFixed(1)}"
+                  width="${lblW.toFixed(1)}" height="12" rx="3"
+                  fill="rgba(13,17,23,0.72)"/>
+            <text x="${midX.toFixed(1)}" y="${(lineY-6).toFixed(1)}"
+                  text-anchor="middle" fill="${color}"
+                  font-size="9" font-family="monospace" font-weight="bold">${escapeHtml(label)}</text>
+        `);
+    }
+
+    return lines.join('');
+}
+
+function _renderLiveMapAlt(sec) {
+    if (_liveMapMode !== 'alt') return;
+    const modal = document.getElementById('live-map-modal');
+    if (!modal?.classList.contains('visible')) return;
+
+    _buildLiveMapAltBase();
+
+    const utcEl = document.getElementById('lm-alt-clock');
+    if (utcEl) utcEl.textContent = secToTime(sec);
+
+    const layer = document.getElementById('live-map-alt-aircraft');
+    if (!layer) return;
+
+    // 현재 시각에 보이는 항공기 위치 계산
+    const visible = state.flights
+        .map(f => ({ f, pos: _computeAltMapAircraftPos(f, sec) }))
+        .filter(({ pos }) => pos !== null);
+
+    // 점선 분리 표시 (항공기 아래 레이어)
+    const sepSvg = _buildAltSepLines(visible, sec);
+
+    // 항공기 마커
+    const acSvg = visible.map(({ f, pos }) => {
+        const color = ALT_AIRPORT_POS[f.dept]?.color || '#58a6ff';
+        return `
+            <circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="8"
+                fill="${color}" stroke="#fff" stroke-width="1.1" opacity="0.92"/>
+            <text x="${(pos.x + 11).toFixed(1)}" y="${(pos.y + 4).toFixed(1)}"
+                fill="#e7eef7" font-size="11" font-family="monospace" font-weight="700">${escapeHtml(f.callsign || '')}</text>
+            <text x="${(pos.x + 11).toFixed(1)}" y="${(pos.y + 16).toFixed(1)}"
+                fill="#8fb2d4" font-size="9" font-family="monospace">FL${String(pos.fl).padStart(3, '0')}</text>
+        `;
+    }).join('');
+
+    layer.innerHTML = sepSvg + acSvg;
+
+    const playBtn = document.getElementById('lm-alt-play');
+    if (playBtn) playBtn.textContent = simState.playing ? '⏸' : '▶';
 }
 
 function _kstDayOfWeek() {
@@ -317,16 +779,21 @@ function _parseImportedFlights(rows) {
 function _applyImportedFlights(importedFlights) {
     state.flights = recalcAll(importedFlights);
     state.prevFlights = state.flights.map(f => ({ ...f }));
-    state.conflicts = detectConflicts(state.flights);
+    state.conflictArmed = false;
+    state.setNowTarget = null;
+    _recomputeConflicts();
     state.whatifEngine = new WhatifEngine(state.flights);
 
     inspector.close();
     ribbon.setSelected(null);
     miniMap.setSelected(null);
+    popupMap?.setSelected(null);
     ribbon.setFlights(state.flights);
     ribbon.setConflicts(state.conflicts);
     miniMap.setFlights(state.flights);
     miniMap.setConflicts(state.conflicts);
+    popupMap?.setFlights(state.flights);
+    popupMap?.setConflicts(state.conflicts);
     queue.setFlights(state.flights);
     queue.setConflicts(state.conflicts);
     watchlist.update(state.conflicts);
@@ -340,6 +807,8 @@ function _syncAllComponents() {
     ribbon.setConflicts(state.conflicts);
     miniMap.setFlights(state.flights);
     miniMap.setConflicts(state.conflicts);
+    popupMap?.setFlights(state.flights);
+    popupMap?.setConflicts(state.conflicts);
     queue.setFlights(state.flights);
     queue.setConflicts(state.conflicts);
     if (watchlist) watchlist.update(state.conflicts);
@@ -348,22 +817,22 @@ function _syncAllComponents() {
     updateAlertBar();
 }
 
-function applyAirportRef(icao) {
-    const nowStr = secToTime(nowUtcSec());
-    state.airportRefTimes[icao] = nowStr;
+function applyAirportRef(icao, refTime) {
+    const timeStr = refTime || secToTime(nowUtcSec());
+    state.airportRefTimes[icao] = timeStr;
     setAirportRefTimes(state.airportRefTimes);
     state.flights = recalcAll(state.flights);
-    state.conflicts = detectConflicts(state.flights);
+    _recomputeConflicts();
     _syncAllComponents();
     queue.updateRefBar(state.airportRefTimes);
-    showToast(`${icao} 기준시각 ${nowStr.slice(0, 2)}:${nowStr.slice(2)}Z 설정`, 'success');
+    showToast(`${icao} 기준시각 ${timeStr.slice(0, 2)}:${timeStr.slice(2)}Z 설정`, 'success');
 }
 
 function clearAirportRef(icao) {
     state.airportRefTimes[icao] = null;
     setAirportRefTimes(state.airportRefTimes);
     state.flights = recalcAll(state.flights);
-    state.conflicts = detectConflicts(state.flights);
+    _recomputeConflicts();
     _syncAllComponents();
     queue.updateRefBar(state.airportRefTimes);
 }
@@ -385,7 +854,7 @@ async function handleExcelImport(file) {
         }
 
         _applyImportedFlights(parsed);
-        showToast(`엑셀 임포트 완료: ${parsed.length}편`, 'success');
+        showToast(`엑셀 임포트 완료: ${parsed.length}편 (새로고침 시 초기화됨 — 영구 저장은 메인 시스템 사용)`, 'success');
     } catch (err) {
         console.error('엑셀 임포트 실패:', err);
         showToast(`엑셀 임포트 실패: ${err.message || '파일 형식 오류'}`, 'error');
@@ -514,12 +983,14 @@ function openBulkDelayModal() {
         if (!wi.active) wi.enable(state.flights);
         const updated = wi.delayAirport(icao, mins);
         state.flights = updated;
-        state.conflicts = wi.getConflicts();
+        _setConflicts(wi.getConflicts());
 
         ribbon.setFlights(state.flights);
         ribbon.setConflicts(state.conflicts);
         miniMap.setFlights(state.flights);
         miniMap.setConflicts(state.conflicts);
+        popupMap?.setFlights(state.flights);
+        popupMap?.setConflicts(state.conflicts);
         queue.setFlights(state.flights);
         queue.setConflicts(state.conflicts);
         updateBadges();
@@ -669,11 +1140,13 @@ function setupEventListeners() {
     document.addEventListener('settings:updated', async () => {
         await refreshSettings();
         state.flights = recalcAll(state.flights);
-        state.conflicts = detectConflicts(state.flights);
+        _recomputeConflicts();
         ribbon.setFlights(state.flights);
         ribbon.setConflicts(state.conflicts);
         miniMap.setFlights(state.flights);
         miniMap.setConflicts(state.conflicts);
+        popupMap?.setFlights(state.flights);
+        popupMap?.setConflicts(state.conflicts);
         queue.setFlights(state.flights);
         queue.setConflicts(state.conflicts);
         if (watchlist) watchlist.update(state.conflicts);
@@ -686,11 +1159,28 @@ function setupEventListeners() {
     document.addEventListener('atd:updated', (e) => {
         const { flightId, diffs, conflicts, auditEntry } = e.detail;
 
+        if (!state.conflictArmed && auditEntry?.reason === 'now_btn') {
+            state.conflictArmed = true;
+        }
+        if (auditEntry?.reason === 'now_btn' && flightId) {
+            const target = state.flights.find(f => f.id === flightId);
+            if (target) {
+                state.setNowTarget = {
+                    callsign: target.callsign || '',
+                    dept: target.dept || '',
+                    atd: target.atd || auditEntry.newAtd || null
+                };
+            }
+        }
+        _setConflicts(conflicts ?? detectConflicts(state.flights));
+
         // 상태 갱신
         ribbon.setFlights(state.flights);
         ribbon.setConflicts(state.conflicts);
         miniMap.setFlights(state.flights);
         miniMap.setConflicts(state.conflicts);
+        popupMap?.setFlights(state.flights);
+        popupMap?.setConflicts(state.conflicts);
         queue.setFlights(state.flights);
         queue.setConflicts(state.conflicts);
         conflictWizard.setFlights(state.flights);
@@ -717,6 +1207,25 @@ function setupEventListeners() {
         updateAlertBar();
         updateUndoButton();
         if (queue) queue.updateRefBar(state.airportRefTimes);
+    });
+
+    // ConflictWizard C/D 메모 Audit 기록
+    document.addEventListener('conflict:memo', (e) => {
+        const { conflict, option, memo, user } = e.detail;
+        const entry = {
+            time: nowUtcTime(),
+            flightId: conflict.f1.id,
+            callsign: `${conflict.f1.callsign} vs ${conflict.f2.callsign}`,
+            dept: conflict.zone,
+            reason: option === 'C' ? 'route_alt_change' : 'manual_accept',
+            newAtd: null,
+            prevAtd: null,
+            diffs: [],
+            memo,
+            user
+        };
+        state.auditLog = [entry, ...(state.auditLog || [])].slice(0, 100);
+        audit.addEntry(entry);
     });
 
     // 헤더 버튼
@@ -785,6 +1294,7 @@ function closeConflictWizard() {
 
 function onFlightSelect(f) {
     miniMap.setSelected(f.id);
+    popupMap?.setSelected(f.id);
     ribbon.setSelected(f.id);
 }
 
@@ -1048,6 +1558,7 @@ function closeSimulation() {
 
     ribbon.clearSimTime();
     miniMap.clearSimPositions();
+    popupMap?.clearSimPositions();
 }
 
 function toggleSimPlay() {
@@ -1097,6 +1608,8 @@ function _applySimTime() {
     if (display) display.textContent = secToTime(sec) + 'Z';
     ribbon.setSimTime(sec);
     miniMap.setSimPositions(computeSimPositions(state.flights, sec));
+    popupMap?.setSimPositions(computeSimPositions(state.flights, sec));
+    _renderLiveMapAlt(sec);
 }
 
 // ============================================================
@@ -1138,13 +1651,15 @@ function _doApplyWhatif() {
     if (!wi.active) return;
     const applied = wi.apply();
     state.flights = applied;
-    state.conflicts = wi.getConflicts();
+    _setConflicts(wi.getConflicts());
     state.whatifEngine = new WhatifEngine(state.flights);
     ribbon.setFlights(state.flights);
     ribbon.setConflicts(state.conflicts);
     ribbon.setWhatif(false, []);
     miniMap.setFlights(state.flights);
     miniMap.setConflicts(state.conflicts);
+    popupMap?.setFlights(state.flights);
+    popupMap?.setConflicts(state.conflicts);
     queue.setFlights(state.flights);
     queue.setConflicts(state.conflicts);
     document.getElementById('badge-whatif')?.classList.remove('active');
@@ -1162,12 +1677,14 @@ function cancelWhatif() {
     const base = wi.disable();
     if (base) state.flights = base;
     // What-if 취소: 베이스라인 기준으로 충돌 재계산
-    state.conflicts = detectConflicts(state.flights);
+    _recomputeConflicts();
     ribbon.setFlights(state.flights);
     ribbon.setConflicts(state.conflicts);
     ribbon.setWhatif(false, []);
     miniMap.setFlights(state.flights);
     miniMap.setConflicts(state.conflicts);
+    popupMap?.setFlights(state.flights);
+    popupMap?.setConflicts(state.conflicts);
     queue.setFlights(state.flights);
     queue.setConflicts(state.conflicts);
     conflictWizard.setFlights(state.flights);
@@ -1210,8 +1727,24 @@ function toggleWhatif() {
 function updateBadges() {
     const bc = document.getElementById('badge-conflicts');
     if (bc) {
+        if (!state.conflictArmed) {
+            bc.textContent = '충돌 대기';
+            bc.classList.add('zero');
+            return;
+        }
         bc.textContent = `충돌 ${state.conflicts.length}`;
         bc.classList.toggle('zero', state.conflicts.length === 0);
+    }
+
+    const bs = document.getElementById('badge-setnow');
+    if (bs) {
+        const t = state.setNowTarget;
+        if (!t?.callsign) {
+            bs.textContent = 'SET NOW 미지정';
+            return;
+        }
+        const timeTxt = t.atd ? `${String(t.atd).slice(0, 2)}:${String(t.atd).slice(2)}Z` : '--:--Z';
+        bs.textContent = `SET NOW ${t.callsign} · ${t.dept} · ${timeTxt}`;
     }
 }
 
@@ -1246,6 +1779,9 @@ function applyUiPrefs() {
     if (prefs.bottomH) {
         document.documentElement.style.setProperty('--bottom-h', `${prefs.bottomH}px`);
     }
+    if (prefs.rightW) {
+        document.documentElement.style.setProperty('--right-w', `${prefs.rightW}px`);
+    }
     if (prefs.whatifActive) {
         // What-if 상태 복원은 flights 로드 후 toggleWhatif로
         state._restoreWhatif = true;
@@ -1272,12 +1808,14 @@ function setupSplitter() {
         const dy = startY - e.clientY;
         const newH = Math.max(80, Math.min(window.innerHeight - 200, startH + dy));
         document.documentElement.style.setProperty('--bottom-h', `${newH}px`);
+        resizeCanvas();
     });
 
     document.addEventListener('mouseup', () => {
         if (dragging) {
             const h = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--bottom-h'), 10);
             saveUiPref('bottomH', h);
+            resizeCanvas();
         }
         dragging = false;
         document.body.style.userSelect = '';
@@ -1286,6 +1824,42 @@ function setupSplitter() {
     splitter.addEventListener('dblclick', () => {
         document.documentElement.style.setProperty('--bottom-h', '560px');
         saveUiPref('bottomH', 560);
+        resizeCanvas();
+    });
+}
+
+function setupVSplitter() {
+    const vSplitter = document.getElementById('v-splitter');
+    if (!vSplitter) return;
+    let dragging = false, startX = 0, startW = 0;
+
+    vSplitter.addEventListener('mousedown', (e) => {
+        dragging = true;
+        startX = e.clientX;
+        startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-w'), 10) || 380;
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const dx = startX - e.clientX; // 왼쪽으로 드래그 → 오른쪽 패널 넓어짐
+        const newW = Math.max(240, Math.min(640, startW + dx));
+        document.documentElement.style.setProperty('--right-w', `${newW}px`);
+        resizeCanvas();
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (dragging) {
+            const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-w'), 10);
+            saveUiPref('rightW', w);
+        }
+        dragging = false;
+        document.body.style.userSelect = '';
+    });
+
+    vSplitter.addEventListener('dblclick', () => {
+        document.documentElement.style.setProperty('--right-w', '380px');
+        saveUiPref('rightW', 380);
     });
 }
 

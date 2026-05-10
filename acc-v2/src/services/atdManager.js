@@ -134,6 +134,7 @@ export async function adjustCtot(flightId, newCtotHHMM) {
     if (_undoStack.length > MAX_UNDO) _undoStack.shift();
 
     const snapshot = _state.flights.map(f => ({ ...f }));
+    const prevCtot = flight.ctot;
     flight.ctot = newCtotHHMM;
     flight.ctotFloor = newCtotHHMM; // recalcAll이 수동 값을 덮어쓰지 않도록 잠금
 
@@ -156,10 +157,22 @@ export async function adjustCtot(flightId, newCtotHHMM) {
         }
     });
 
+    const auditEntry = {
+        time: nowUtcTime(),
+        flightId,
+        callsign: flight.callsign,
+        dept: flight.dept,
+        prevCtot,
+        newCtot: newCtotHHMM,
+        reason: 'manual_ctot_adjust',
+        diffs,
+        user: localStorage.getItem('username') || 'unknown'
+    };
+    _state.auditLog = [auditEntry, ...(_state.auditLog || [])].slice(0, 100);
     _state.prevFlights = recalculated.map(f => ({ ...f }));
 
     document.dispatchEvent(new CustomEvent('atd:updated', {
-        detail: { flightId, diffs, conflicts: _state.conflicts, auditEntry: null }
+        detail: { flightId, diffs, conflicts: _state.conflicts, auditEntry }
     }));
 
     return { diffs, conflicts: _state.conflicts };

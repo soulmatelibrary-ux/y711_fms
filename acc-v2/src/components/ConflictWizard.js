@@ -172,8 +172,6 @@ export class ConflictWizard {
         if (opt === 'A') {
             await resolveConflictDelay(cf);
         } else if (opt === 'B') {
-            // 선행편 지연: setAtd를 통해 상태 동기화 (직접 뮤테이션 금지)
-            const newSec = timeToSec(cf.f1.ctot || cf.f1.eobt) + neededMin * 60;
             await resolveConflictDelay({ ...cf, f2: cf.f1 }, 'f1_delay');
         } else if (opt === 'C') {
             this._showMemoDialog(`항로/고도 변경 메모\n${cf.f1.callsign} vs ${cf.f2.callsign} at ${cf.zone}`);
@@ -207,7 +205,14 @@ export class ConflictWizard {
         modal.querySelector('.btn-wiz-cancel').addEventListener('click', () => modal.remove());
         modal.querySelector('.btn-memo-ok').addEventListener('click', () => {
             const val = modal.querySelector('#memo-input').value.trim();
-            if (val) console.log(`[ConflictWizard memo] ${title}: ${val}`);
+            document.dispatchEvent(new CustomEvent('conflict:memo', {
+                detail: {
+                    conflict: this._conflict,
+                    option: title.startsWith('항로') ? 'C' : 'D',
+                    memo: val || '(메모 없음)',
+                    user: localStorage.getItem('username') || 'unknown'
+                }
+            }));
             modal.remove();
             this.close();
         });

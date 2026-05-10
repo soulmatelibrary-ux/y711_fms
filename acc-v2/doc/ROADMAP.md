@@ -10,10 +10,11 @@
 
 3대 사용자 목표 중 "정확성/신뢰" 와 "시각화" 의 발판을 동시에 마련한다.
 
-- [x] **P0-1 · F1 CTOT 분리 검사 부등호 수정**
+- [x] **P0-1 · F1 CTOT 분리 검사 — 역방향 충돌 포함 처리로 결론**
   - 파일: `acc-v2/src/services/ctotEngine.js`
-  - 변경: `Math.abs(diff) < zone.separationMin*60` → `(diff > 0 && diff < zone.separationMin*60)`
-  - 검증: 앞서 가는 비행 케이스로 false-positive 부재 확인.
+  - 설계 결정: `Math.abs(diff) < zone.separationMin*60` 유지. 비행시간이 짧은 공항(예: RKJJ)이 먼저 도착해 선행편이 되는 역방향 케이스에서도 분리를 보장해야 하므로 단방향 `diff > 0` 조건은 부적절하다고 판단.
+  - 조정 공식 `tentative += separationMin*60 - diff` 는 `diff < 0`(역방향)에서도 올바르게 동작 (선행편 이후 separationMin*60 이상의 간격 확보).
+  - 검증: 역방향 케이스(RKJJ 편이 RKSS 편보다 먼저 합류점 도달) → 올바르게 후행 지연 확인.
 - [x] **P0-2 · U2 평문 자격증명 노출 제거**
   - 파일: `acc-v2/login.html`
   - 변경: 하단 "기본 계정: admin / katc0012#$" 영역 제거 → "관리자에게 문의" 안내.
@@ -95,31 +96,23 @@
 
 운영 현장에서 ATD 정보가 본 시스템을 통해 타워와 송수신되지 않으므로 `TOWER ADVISORY` 패널을 **`CONFLICT WATCHLIST`** (활성 충돌 처리 대기열) 로 전환한다. 전체 설계는 [`CONFLICT_WATCHLIST_DESIGN.md`](./CONFLICT_WATCHLIST_DESIGN.md). 단계별 PR 로 분해.
 
-- [ ] **W1 · 컴포넌트 신설 (UI 만, 더미)** — `P1`
-  - 신규 파일: `acc-v2/src/components/ConflictWatchlist.js`
+- [x] **W1 · 컴포넌트 신설 (UI 만, 더미)** — `P1`
+  - 신규 파일: `acc-v2/src/components/ConflictWatchlist.js` (239줄, NEW/ACK/RESOLVED 상태, 필터, 키보드)
   - 변경: `acc-v2/style.css` (`.wl-*` 클래스 추가)
-  - 검증: 더미 데이터로 카드 렌더링 / NEW·ACK·RESOLVED 시각 차이 / 빈 상태 안내
-- [ ] **W2 · state.watchlist 도입 + atd:updated 연결** — `P1`
-  - 변경: `acc-v2/main.js` (`state.watchlist` 추가, `atd:updated` 핸들러에 `watchlist.update(...)`)
+- [x] **W2 · state.watchlist 도입 + atd:updated 연결** — `P1`
+  - 변경: `acc-v2/main.js` (`watchlist` 변수, `atd:updated` 핸들러에 `watchlist.update(state.conflicts)`)
   - 카드 → `onFlightSelect`, `Resolve` → `conflictWizard.open` 연동
-  - 이 단계까지는 Tower Advisory 와 병존 (의미 차별화 검증)
-  - 검증: ATD 변경 시 카드 동기 갱신 / 자동 해소 5초 페이드 / `Ack` 회색 처리 / `×` dismiss 후 재출현
-- [ ] **W3 · Tower Advisory 자산 제거** — `P1`
+- [x] **W3 · Tower Advisory 자산 제거** — `P1`
   - 삭제: `acc-v2/src/components/TowerAdvisory.js`, `acc-v2/src/services/advisoryGen.js`
-  - 변경: `acc-v2/src/services/atdManager.js` (`generateAdvisories()` 함수 + `_state.pendingAdvisories` 참조 제거)
-  - 변경: `acc-v2/main.js` (import, `advisory` 변수, `bp-section` 헤더 텍스트 `TOWER ADVISORY` → `CONFLICT WATCHLIST`, `advisory-body` → `watchlist-body`)
-  - 변경: `acc-v2/style.css` (`.adv-*` 잔재 제거)
-  - 검증: `grep -rn "TowerAdvisory\|pendingAdvisories\|advisoryGen" acc-v2/src acc-v2/main.js` → 0
-- [ ] **W4 · 헤더 배지 통합** — `P2`
-  - 변경: `acc-v2/main.js` (`badge-adv` DOM 제거, `updateBadges()` 에서 권고 N 제거, `badge-conflicts` 클릭 동작을 Alert Bar visible 여부에 따라 분기)
-  - 검증: Alert Bar 표시 중 충돌 N 클릭 → `openFirstConflict` / 미표시 시 → `watchlist.focusFirst()`
-- [ ] **W5 · 키보드 접근성** — `P2`
-  - Watchlist 포커스 상태에서 J/K 항목 이동, Enter Resolve, Space Ack
-  - 도움말 모달 단축키 표 (`acc-v2/main.js:349~360`) 갱신
-- [ ] **W6 · 서버 advisory 라우트 deprecate 표기** — `P3`
-  - 변경: `api-server.js` 의 `/api/v2/advisory*` 라우트 위에 `// DEPRECATED 2026-05-10` 주석
-  - DB 테이블/마이그레이션은 별도 cleanup PR (선택)
-  - 검증: 클라이언트가 advisory 엔드포인트 미호출 (네트워크 탭)
+  - `atdManager.js` 에서 `generateAdvisories()` / `pendingAdvisories` 완전 제거
+  - `main.js` — `CONFLICT WATCHLIST` 헤더로 전환, 잔재 0
+- [x] **W4 · 헤더 배지 통합** — `P2`
+  - `badge-adv` 제거, `badge-conflicts` 클릭 → Alert Bar 표시 시 `openFirstConflict`, 미표시 시 `watchlist.focusFirst()`
+- [x] **W5 · 키보드 접근성** — `P2`
+  - `ConflictWatchlist._setupKeyboard()` — J/K 이동, Enter Resolve, Space Ack
+- [x] **W6 · 서버 advisory 라우트 deprecate 표기** — `P3`
+  - `api-server.js` 의 `/api/v2/advisory*` 라우트에 `// DEPRECATED 2026-05-10` 주석 추가
+  - DB 테이블 cleanup 은 별도 PR 예정
 
 ---
 
