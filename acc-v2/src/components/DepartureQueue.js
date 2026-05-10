@@ -8,7 +8,8 @@ import { getSettings } from '../utils/settingsLoader.js';
 export class DepartureQueue {
     constructor(container, {
         onFlightSelect, onFlightDblClick,
-        onSetAirportRef, onClearAirportRef, getAirportRefTimes
+        onSetAirportRef, onClearAirportRef, getAirportRefTimes,
+        onSetAirportRefByFlight
     } = {}) {
         this.container = container;
         this.flights = [];
@@ -18,6 +19,7 @@ export class DepartureQueue {
         this.onSetAirportRef = onSetAirportRef || (() => {});
         this.onClearAirportRef = onClearAirportRef || (() => {});
         this.getAirportRefTimes = getAirportRefTimes || (() => ({}));
+        this.onSetAirportRefByFlight = onSetAirportRefByFlight || (() => {});
         this._searchQuery = '';
         this._filterApt = '';
         this._refBarEl = null;
@@ -50,9 +52,12 @@ export class DepartureQueue {
             const rt = (refTimes || {})[icao];
             const label = rt ? `${rt.slice(0, 2)}:${rt.slice(2)}` : '--:--';
             const active = rt ? ' apt-ref-chip--active' : '';
+            const tooltip = icao === 'RKSS'
+                ? '클릭: Set Now / 우클릭: 초기화'
+                : '기준편 카드의 [기준] 버튼으로 설정 / 우클릭: 초기화';
             return `<span class="apt-ref-chip${active}" data-icao="${icao}"
                           style="--apt-color:${APT_COLOR[icao]}"
-                          title="클릭: Set Now / 우클릭: 초기화">
+                          title="${tooltip}">
                 <span class="apt-ref-label">${icao}</span>
                 <span class="apt-ref-time">${label}</span>
             </span>`;
@@ -102,7 +107,11 @@ export class DepartureQueue {
                 if (this._filterApt && f.dept !== this._filterApt) return false;
                 return true;
             })
-            .sort((a, b) => timeToSec(a.ctot || a.eobt) - timeToSec(b.ctot || b.eobt));
+            .sort((a, b) => {
+                // KST 하루 경계: UTC 15:00 미만(00:xx~14:xx)은 +86400 처리
+                const toAbs = s => (s > 0 && s < 15 * 3600 ? s + 86400 : s);
+                return toAbs(timeToSec(a.eobt)) - toAbs(timeToSec(b.eobt));
+            });
 
         if (!queue.length) {
             this.container.innerHTML = `
@@ -115,7 +124,7 @@ export class DepartureQueue {
             return;
         }
 
-        this.container.innerHTML = queue.map(f => {
+        const rowsHtml = queue.map(f => {
             const ctotSec = timeToSec(f.ctot || f.eobt);
             const diffMins = Math.round((ctotSec - now) / 60);
             const hasConflict = this.conflicts.some(c => c.f1.id === f.id || c.f2.id === f.id);
@@ -131,40 +140,49 @@ export class DepartureQueue {
             const aptColor = { RKSS: '#58a6ff', RKTU: '#bc8cff', RKJK: '#39c5bb', RKJJ: '#d29922' }[f.dept] || '#4fc3f7';
 
             const rfl = f.cfl ? String(f.cfl).toUpperCase().replace(/^(?!FL)/i, 'FL') : '—';
-            const atdVal = f.atd ? formatDisplay(f.atd) : '—';
             return `<div class="${cardClass}" data-id="${f.id}" style="border-left: 4px solid ${aptColor}">
-                <div class="qc-row1">
-                    <span class="qc-callsign" style="color:${aptColor}">${escapeHtml(f.callsign)}</span>
-                    <span class="qc-fpl-group">
-                        <span class="qc-fpl-item"><span class="qc-fpl-lbl">EOBT</span><span class="qc-fpl-val">${formatDisplay(f.eobt)}</span></span>
-                        <span class="qc-fpl-item"><span class="qc-fpl-lbl">RFL</span><span class="qc-fpl-val">${rfl}</span></span>
-                        <span class="qc-fpl-item"><span class="qc-fpl-lbl">ATD</span><span class="qc-fpl-val ${f.atd ? 'atd-set' : 'atd-none'}">${atdVal}</span></span>
-                    </span>
-                    <span class="qc-ctot-val">${formatDisplay(f.ctot || f.eobt)}</span>
-                    <span class="qc-delta ${diffMins < 0 ? 'past' : ''}">${timeLabel}</span>
+                <div class="qc-line">
+                    <span class="qc-cell qc-callsign" style="color:${aptColor}">${escapeHtml(f.callsign)}</span>
+                    <span class="qc-cell qc-alt">${rfl}</span>
+                    <span class="qc-cell qc-time">${formatDisplay(f.eobt)}</span>
+                    <span class="qc-cell qc-time">${formatDisplay(f.ctot || f.eobt)}</span>
+                    <span class="qc-cell qc-delta ${diffMins < 0 ? 'past' : ''}">${timeLabel}</span>
                     ${hasConflict ? '<span class="qc-conflict-badge">⚠</span>' : ''}
-                </div>
-                <div class="qc-row2">
                     ${isDep
-                        ? `<span class="qc-dep-badge">출발완료 ✓</span>`
-                        : `<button class="btn-qnow" data-id="${f.id}">NOW</button>
+                        ? `<span class="qc-dep-badge qc-inline">출발완료 ✓</span>`
+                        : `<span class="qc-actions-inline"><button class="btn-qnow" data-id="${f.id}">NOW</button>
+                           <button class="btn-qadj" data-id="${f.id}" data-d="-5">-5m</button>
+                           <button class="btn-qadj" data-id="${f.id}" data-d="-1">-1m</button>
                            <button class="btn-qadj" data-id="${f.id}" data-d="1">+1m</button>
-                           <button class="btn-qadj" data-id="${f.id}" data-d="5">+5m</button>`
+                           <button class="btn-qadj" data-id="${f.id}" data-d="5">+5m</button>
+                           ${f.dept !== 'RKSS' ? `<button class="btn-qref" data-id="${f.id}">기준</button>` : ''}</span>`
                     }
                 </div>
             </div>`;
         }).join('');
 
+        this.container.innerHTML = `
+            <div class="queue-col-head">
+                <span class="qch-cell qch-callsign">CALLSIGN</span>
+                <span class="qch-cell qch-alt">고도</span>
+                <span class="qch-cell qch-time">EOBT</span>
+                <span class="qch-cell qch-time">CTOT</span>
+                <span class="qch-cell qch-delta">Δ</span>
+                <span class="qch-cell qch-actions">조작</span>
+            </div>
+            ${rowsHtml}
+        `;
+
         // 이벤트 바인딩
         this.container.querySelectorAll('[data-id]').forEach(el => {
             el.addEventListener('click', (e) => {
-                if (e.target.classList.contains('btn-qnow') || e.target.classList.contains('btn-qadj')) return;
+                if (e.target.classList.contains('btn-qnow') || e.target.classList.contains('btn-qadj') || e.target.classList.contains('btn-qref')) return;
                 const id = el.dataset.id;
                 const f = this.flights.find(fl => fl.id === id);
                 if (f) this.onFlightSelect(f);
             });
             el.addEventListener('dblclick', (e) => {
-                if (e.target.classList.contains('btn-qnow') || e.target.classList.contains('btn-qadj')) return;
+                if (e.target.classList.contains('btn-qnow') || e.target.classList.contains('btn-qadj') || e.target.classList.contains('btn-qref')) return;
                 const id = el.dataset.id;
                 const f = this.flights.find(fl => fl.id === id);
                 if (f) this.onFlightDblClick(f, e);
@@ -184,6 +202,14 @@ export class DepartureQueue {
                 const delta = parseInt(btn.dataset.d, 10);
                 const base = timeToSec(f.ctot || f.eobt) + delta * 60;
                 adjustCtot(f.id, secToTime(base));
+            });
+        });
+        this.container.querySelectorAll('.btn-qref').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const f = this.flights.find(fl => fl.id === btn.dataset.id);
+                if (!f) return;
+                this.onSetAirportRefByFlight(f.dept, f.ctot || f.eobt);
             });
         });
     }

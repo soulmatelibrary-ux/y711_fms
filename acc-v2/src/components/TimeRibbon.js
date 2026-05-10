@@ -5,7 +5,7 @@
 import { timeToSec, secToTime, nowUtcSec } from '../utils/timeUtils.js';
 import { showUndoToast } from '../utils/toast.js';
 
-const LANE_H = 72;
+const LANE_H = 58;
 const SECTION_H = 28;
 const LABEL_W = 88;
 const PX_PER_MIN_DEFAULT = 8;
@@ -76,6 +76,8 @@ export class TimeRibbon {
         this._viewOffsetSec = 0;
         this._suppressClickUntil = 0;
         this._callsignHitboxes = [];
+        this._diamondHitboxes = [];
+        this._diamondTooltip = null;
 
         // 레인 순서 (flat)
         this.laneOrder = SECTIONS.flatMap(s => s.lanes);
@@ -130,6 +132,11 @@ export class TimeRibbon {
 
     destroy() {
         if (this._raf) cancelAnimationFrame(this._raf);
+        this._hideDiamondTooltip();
+        if (this._diamondTooltip) {
+            this._diamondTooltip.remove();
+            this._diamondTooltip = null;
+        }
     }
 
     draw() {
@@ -149,6 +156,7 @@ export class TimeRibbon {
         this._drawLabels();
         // 프레임마다 콜사인 텍스트 히트 영역을 갱신
         this._callsignHitboxes = [];
+        this._diamondHitboxes = [];
         this._drawFlights();
         this._drawConvDiamonds();
         this._drawConflictOverlays();
@@ -281,7 +289,7 @@ export class TimeRibbon {
 
         const x1 = this._tx(ctotSec);
         const x2 = this._tx(endSec);
-        const barH = 42;
+        const barH = 34;
         const barY = laneY + (LANE_H - barH) / 2;
 
         const W = this.canvas.width;
@@ -438,6 +446,15 @@ export class TimeRibbon {
                 c.fill();
                 c.stroke();
 
+                this._diamondHitboxes.push({
+                    left: x - sz - 2,
+                    right: x + sz + 2,
+                    top: y - sz - 2,
+                    bottom: y + sz + 2,
+                    flight: f,
+                    waypoint: wp,
+                });
+
                 // 충돌 시 빨간 glow
                 if (isConvict) {
                     c.shadowColor = '#ff3b30';
@@ -447,6 +464,60 @@ export class TimeRibbon {
                 }
             });
         });
+    }
+
+    _hitTestDiamond(mx, my) {
+        for (let i = this._diamondHitboxes.length - 1; i >= 0; i--) {
+            const h = this._diamondHitboxes[i];
+            if (mx >= h.left && mx <= h.right && my >= h.top && my <= h.bottom) {
+                return h;
+            }
+        }
+        return null;
+    }
+
+    _ensureDiamondTooltip() {
+        if (this._diamondTooltip) return this._diamondTooltip;
+        const el = document.createElement('div');
+        el.style.position = 'fixed';
+        el.style.zIndex = '2000';
+        el.style.pointerEvents = 'none';
+        el.style.background = 'rgba(8, 14, 24, 0.96)';
+        el.style.border = '1px solid rgba(130, 170, 220, 0.45)';
+        el.style.borderRadius = '6px';
+        el.style.padding = '6px 8px';
+        el.style.color = '#d7e8ff';
+        el.style.font = '12px "Courier New", monospace';
+        el.style.lineHeight = '1.35';
+        el.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+        el.style.whiteSpace = 'nowrap';
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        this._diamondTooltip = el;
+        return el;
+    }
+
+    _showDiamondTooltip(hit, clientX, clientY) {
+        const el = this._ensureDiamondTooltip();
+        const f = hit.flight;
+        const wp = hit.waypoint;
+        const eta = secToTime(wp.timeSec);
+        const ctotSec = timeToSec(f.ctot || f.eobt);
+        let deltaSec = wp.timeSec - ctotSec;
+        // 자정 경계에서 음/양수가 뒤집히지 않도록 24h 래핑 보정
+        if (deltaSec > 43200) deltaSec -= 86400;
+        if (deltaSec < -43200) deltaSec += 86400;
+        const deltaMin = Math.round(deltaSec / 60);
+        const tMark = `T${deltaMin >= 0 ? '+' : ''}${deltaMin}m`;
+        const dest = f.dest || 'RKPC';
+        el.innerHTML = `${f.callsign || 'UNKNOWN'} · ${f.dept || '----'}→${dest}<br>${wp.name} ${eta}Z (${tMark})`;
+        el.style.left = `${clientX + 12}px`;
+        el.style.top = `${clientY + 14}px`;
+        el.style.display = 'block';
+    }
+
+    _hideDiamondTooltip() {
+        if (this._diamondTooltip) this._diamondTooltip.style.display = 'none';
     }
 
     _drawConflictOverlays() {
@@ -582,7 +653,7 @@ export class TimeRibbon {
             const left = Math.max(LABEL_W, Math.min(x1, x2));
             const right = Math.min(W, Math.max(x1, x2));
             if (right - left < 2) continue;
-            const barH = 42;
+            const barH = 34;
             const barY = laneY + (LANE_H - barH) / 2;
             if (mx >= left && mx <= right && my >= barY && my <= barY + barH) {
                 return f;
@@ -653,6 +724,7 @@ export class TimeRibbon {
         // hover cursor
         canvas.addEventListener('mousemove', (e) => {
             if (this._pan) {
+                this._hideDiamondTooltip();
                 const rect = canvas.getBoundingClientRect();
                 const mx = e.clientX - rect.left;
                 const dxPx = mx - this._pan.startX;
@@ -663,6 +735,7 @@ export class TimeRibbon {
                 return;
             }
             if (this._drag) {
+                this._hideDiamondTooltip();
                 const rect = canvas.getBoundingClientRect();
                 const mx = e.clientX - rect.left;
                 const dxPx = mx - this._drag.startX;
@@ -676,8 +749,16 @@ export class TimeRibbon {
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             const cf = this._hitTestConflict(mx, my);
+            const d = this._hitTestDiamond(mx, my);
             const f = this._hitTest(mx, my);
-            canvas.style.cursor = cf ? 'pointer' : (f ? 'grab' : (e.ctrlKey ? 'grab' : ''));
+            if (d) this._showDiamondTooltip(d, e.clientX, e.clientY);
+            else this._hideDiamondTooltip();
+            canvas.style.cursor = cf ? 'pointer' : (d ? 'help' : (f ? 'grab' : (e.ctrlKey ? 'grab' : '')));
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            this._hideDiamondTooltip();
+            canvas.style.cursor = '';
         });
 
         // 드래그
@@ -690,6 +771,7 @@ export class TimeRibbon {
 
             // Windows 사용 기준: Ctrl + 빈 영역 드래그로 시간축 좌우 이동
             if (e.ctrlKey && !f && !cf) {
+                this._hideDiamondTooltip();
                 this._pan = { startX: mx, startOffsetSec: this._viewOffsetSec, moved: false };
                 canvas.style.cursor = 'grabbing';
                 e.preventDefault();
@@ -697,6 +779,7 @@ export class TimeRibbon {
             }
 
             if (f) {
+                this._hideDiamondTooltip();
                 this._drag = { flight: f, startX: mx, origCtotSec: timeToSec(f.atd || f.ctot || f.eobt) };
             }
         });

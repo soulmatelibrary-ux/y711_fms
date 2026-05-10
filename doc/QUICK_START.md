@@ -146,8 +146,9 @@
 ## 📞 지원
 
 - **문제 보고**: 프로젝트 GitHub Issues
-- **자세한 가이드**: `EXCEL_SCHEDULE_GUIDE.md` 참조
-- **기술 상세**: `src/main.js` 함수 주석 참조
+- **자세한 가이드**: [`operations/EXCEL_GUIDE.md`](./operations/EXCEL_GUIDE.md)
+- **트러블슈팅**: [`operations/TROUBLESHOOTING.md`](./operations/TROUBLESHOOTING.md)
+- **기술 상세**: `src/main-modular.js`, `src/services/ctot.js`, `src/components/Header.js` 주석 참조
 
 ---
 

@@ -62,6 +62,11 @@ export class Header {
         this.currentUser = this.getCurrentUser();
         this.updateUserDisplay();
         this.bindEvents();
+
+        // Modals 컴포넌트가 Excel 업로드를 완료할 수 있도록 노출
+        window.headerUploadExcelData = (startDate, endDate) => {
+            return this.uploadExcelData(startDate, endDate);
+        };
     }
 
     /**
@@ -252,42 +257,10 @@ export class Header {
         modal.classList.remove('hidden');
         this.excelFilesToUpload = flights;
 
-        // 빠른 선택 버튼
-        document.getElementById('quick-3m')?.addEventListener('click', () => {
-            this.setSchedulePeriod(3);
-        });
-
-        document.getElementById('quick-6m')?.addEventListener('click', () => {
-            this.setSchedulePeriod(6);
-        });
-
-        document.getElementById('quick-12m')?.addEventListener('click', () => {
-            this.setSchedulePeriod(12);
-        });
-
-        // 확인 버튼
-        document.getElementById('confirm-schedule')?.addEventListener('click', () => {
-            this.confirmSchedulePeriod();
-        });
-
-        // 취소 버튼
-        document.getElementById('cancel-schedule')?.addEventListener('click', () => {
-            this.closeSchedulePeriodModal();
-        });
-
-        // 닫기 버튼
-        document.getElementById('close-schedule-modal')?.addEventListener('click', () => {
-            this.closeSchedulePeriodModal();
-        });
-    }
-
-    /**
-     * 날짜 범위 빠른 선택
-     */
-    setSchedulePeriod(months) {
+        // 초기 날짜 설정 (6개월 기본값)
         const startDate = new Date();
         const endDate = new Date();
-        endDate.setMonth(endDate.getMonth() + months);
+        endDate.setMonth(endDate.getMonth() + 6);
 
         const startInput = document.getElementById('schedule-start-date');
         const endInput = document.getElementById('schedule-end-date');
@@ -295,58 +268,45 @@ export class Header {
         if (startInput) startInput.value = startDate.toISOString().split('T')[0];
         if (endInput) endInput.value = endDate.toISOString().split('T')[0];
 
-        this.updatePeriodSummary();
-    }
-
-    /**
-     * 기간 선택 요약 업데이트
-     */
-    updatePeriodSummary() {
-        const startDate = document.getElementById('schedule-start-date')?.value;
-        const endDate = document.getElementById('schedule-end-date')?.value;
+        // 기간 요약 업데이트
         const summary = document.getElementById('period-summary');
-
-        if (startDate && endDate && summary) {
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-            const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-            summary.textContent = `${startDate} ~ ${endDate} (${days}일)`;
+        if (summary) {
+            const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            summary.textContent = `${startInput.value} ~ ${endInput.value} (${days}일)`;
         }
+
+        // NOTE: 모든 event listener는 Modals.js의 init()에서 한 번만 바인딩됨
+        // 여기서는 modal 열기만 수행
     }
 
-    /**
-     * 날짜 범위 선택 확인
-     */
-    confirmSchedulePeriod() {
-        const startDate = document.getElementById('schedule-start-date')?.value;
-        const endDate = document.getElementById('schedule-end-date')?.value;
 
+    /**
+     * Excel 데이터 업로드 (Modals에서 호출됨)
+     */
+    async uploadExcelData(startDate, endDate) {
         if (!startDate || !endDate) {
             showToast('시작일과 종료일을 선택하세요', 'warning');
             return;
         }
 
-        // 기존 데이터와 겹침 확인
-        this.checkScheduleOverlap(startDate, endDate);
-    }
+        try {
+            // 전역 processExcelFile 함수 호출 (main-modular.js에서 정의됨)
+            if (typeof window.processExcelFile === 'function') {
+                const success = await window.processExcelFile(this.excelFilesToUpload, startDate, endDate);
 
-    /**
-     * 스케줄 겹침 확인
-     */
-    checkScheduleOverlap(startDate, endDate) {
-        // TODO: 데이터베이스에서 겹친 날짜 확인
-        // 임시로 겹침 없음 가정
-        this.closeSchedulePeriodModal();
-        this.uploadExcelData();
-    }
+                if (success) {
+                    this.closeSchedulePeriodModal();
+                }
+            } else {
+                console.warn('processExcelFile 함수를 찾을 수 없습니다');
+                showToast('시스템 오류: processExcelFile 함수를 찾을 수 없습니다', 'error');
+            }
+        } catch (error) {
+            console.error('Excel 업로드 오류:', error);
+            showToast('파일 업로드 실패: ' + error.message, 'error');
+        }
 
-    /**
-     * Excel 데이터 업로드
-     */
-    uploadExcelData() {
-        showToast('파일이 업로드되었습니다', 'success');
         this.isExcelUploading = false;
-        this.closeSchedulePeriodModal();
     }
 
     /**

@@ -40,7 +40,7 @@ export class Inspector {
         this._renderContent();
 
         // 뷰포트 밖으로 나가지 않도록 위치 조정
-        const W = 284, H = 360;
+        const W = 320, H = 500;
         const x = Math.min(clientX + 10, window.innerWidth - W - 8);
         const y = Math.min(clientY + 10, window.innerHeight - H - 8);
         popup.style.left = `${Math.max(8, x)}px`;
@@ -75,21 +75,47 @@ export class Inspector {
         const statusColor = { SCH: '#4fc3f7', DEP: '#4caf50', ARR: '#81c784' }[f.status] || '#888';
         const ctotDelta = f.atd ? diffMinutes(f.ctot, f.atd) : null;
 
+        const waypoints = Array.isArray(f.routeWaypoints) ? f.routeWaypoints : [];
+        const majorNames = ['BULTI', 'MEKIL', 'JNKR', 'MANGI', 'DALSU'];
+        const majorWaypoints = waypoints.filter(w => majorNames.includes(w.name));
+        const shownWaypoints = (majorWaypoints.length ? majorWaypoints : waypoints).slice(0, 5);
+        const etaPoint = waypoints.find(w => w.name === 'RKPC') || waypoints[waypoints.length - 1] || null;
+        const fallbackEta = secToTime(timeToSec(f.ctot || f.eobt) + 50 * 60);
+        const etaHHMM = formatDisplay(etaPoint ? secToTime(etaPoint.timeSec) : fallbackEta);
+        const routeItemsHtml = shownWaypoints.length
+            ? shownWaypoints.map(w => `
+                <div class="insp-route-item">
+                    <span class="insp-route-wp">${escapeHtml(w.name)}</span>
+                    <span class="insp-route-time">${formatDisplay(secToTime(w.timeSec))}</span>
+                </div>
+            `).join('')
+            : '<div class="insp-route-empty">웨이포인트 계산 없음</div>';
+
         this._popup.innerHTML = `
         <div class="insp-popup-header">
             <span class="insp-callsign">${escapeHtml(f.callsign)}</span>
             <span class="insp-status" style="color:${statusColor}" title="SCH=예정/DEP=출발완료">${f.status || 'SCH'}</span>
             <button class="insp-close-btn" title="닫기 (ESC)">×</button>
         </div>
-        <div class="insp-row"><span class="insp-lbl">출발</span><span class="insp-val">${f.dept}</span></div>
-        <div class="insp-row"><span class="insp-lbl">도착</span><span class="insp-val">${f.dest || 'RKPC'}</span></div>
-        <div class="insp-row">
-            <span class="insp-lbl" title="Estimated Off-Block Time">EOBT</span>
-            <span class="insp-val mono">${formatDisplay(f.eobt)}</span>
+        <div class="insp-grid2-row">
+            <div class="insp-grid2-cell">
+                <span class="insp-lbl">출발</span>
+                <span class="insp-val">${f.dept}</span>
+            </div>
+            <div class="insp-grid2-cell">
+                <span class="insp-lbl">도착</span>
+                <span class="insp-val">${f.dest || 'RKPC'}</span>
+            </div>
         </div>
-        <div class="insp-row">
-            <span class="insp-lbl" title="Calculated Take-Off Time">CTOT</span>
-            <span class="insp-val mono" style="color:#ffd700">${formatDisplay(f.ctot)}</span>
+        <div class="insp-grid2-row">
+            <div class="insp-grid2-cell">
+                <span class="insp-lbl" title="Estimated Off-Block Time">EOBT</span>
+                <span class="insp-val mono">${formatDisplay(f.eobt)}</span>
+            </div>
+            <div class="insp-grid2-cell">
+                <span class="insp-lbl" title="Calculated Take-Off Time">CTOT</span>
+                <span class="insp-val mono" style="color:#ffd700">${formatDisplay(f.ctot)}</span>
+            </div>
         </div>
         <div class="insp-row">
             <span class="insp-lbl" title="Actual Take-off Departure">ATD</span>
@@ -101,6 +127,13 @@ export class Inspector {
             <span class="delta-label">ATD vs CTOT</span>
         </div>` : ''}
         <div class="insp-row"><span class="insp-lbl" title="Cleared Flight Level">CFL</span><span class="insp-val">${f.cfl || '—'}</span></div>
+        <div class="insp-route-box">
+            <div class="insp-route-head">
+                <span class="insp-route-title">주요지점 통과시각 (UTC)</span>
+                <span class="insp-route-eta">ETA RKPC ${etaHHMM}</span>
+            </div>
+            <div class="insp-route-grid">${routeItemsHtml}</div>
+        </div>
         <div class="insp-actions">
             <button class="btn-now" data-id="${f.id}">SET NOW</button>
             <button class="btn-adj" data-id="${f.id}" data-delta="-1">−1m</button>

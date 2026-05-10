@@ -52,11 +52,9 @@ export function recalcAll(flights) {
 
     const updated = flights.map(f => ({ ...f }));
 
-    // 자정 경계 처리: 04:00 이상의 최솟값을 기준으로 0~03:59 구간은 다음날(+86400)로 보정
-    const rawSecs = updated.map(f => timeToSec(f.eobt)).filter(s => s > 0);
-    const dayStarts = rawSecs.filter(s => s >= 4 * 3600);
-    const anchor = dayStarts.length ? Math.min(...dayStarts) : (rawSecs.length ? Math.min(...rawSecs) : 0);
-    const toAbsSec = s => (s > 0 && s < anchor - 6 * 3600 ? s + 86400 : s);
+    // 자정 경계 처리: KST 하루 = UTC 15:00 ~ 다음날 UTC 14:59
+    // UTC 15:00(54000s) 미만인 시간(00:xx~14:xx)은 같은 KST 날의 연속 → +86400
+    const toAbsSec = s => (s > 0 && s < 15 * 3600 ? s + 86400 : s);
 
     updated.sort((a, b) => toAbsSec(timeToSec(a.eobt)) - toAbsSec(timeToSec(b.eobt)));
 
@@ -94,10 +92,16 @@ export function recalcAll(flights) {
         // Priority 2: 합류점 분리 확인 (이전 항공편과 비교)
         // tentative 변경 시 myWps를 재계산해야 정확한 지연값을 산출할 수 있다.
         const zones = getConflictZones();
+        const maxReqSepSec = zones.reduce((m, z) => Math.max(m, z.separationMin * 60), 0);
         if (idx > 0) {
             for (let i = 0; i < idx; i++) {
                 const prev = updated[i];
-                const prevWps = prev.routeWaypoints || calcWaypoints(prev, toAbsSec(timeToSec(prev.ctot || prev.eobt)));
+                const prevCtotSec = toAbsSec(timeToSec(prev.ctot || prev.eobt));
+
+                // 출발 간격이 최대 요구 분리보다 충분히 크면 웨이포인트 계산 생략
+                if (tentative - prevCtotSec >= maxReqSepSec) continue;
+
+                const prevWps = prev.routeWaypoints || calcWaypoints(prev, prevCtotSec);
 
                 // 이 이전편과 충돌이 없어질 때까지 tentative를 올리고 재계산 반복
                 let adjusted = true;

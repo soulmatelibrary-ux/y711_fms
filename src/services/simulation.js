@@ -379,3 +379,116 @@ export function getTimeToWaypoint(fromWaypoint, toWaypoint) {
 
     return totalTime;
 }
+
+/**
+ * 맵에 항공기 그리기
+ */
+export function drawAircraft(layer, flight, pos, color = '#58a6ff') {
+    // 항공기 심볼 (큰 원)
+    const circle = createSvgEl('circle', {
+        cx: pos.x,
+        cy: pos.y,
+        r: '8',
+        fill: color,
+        stroke: 'white',
+        'stroke-width': '1',
+        opacity: '0.9'
+    });
+    layer.appendChild(circle);
+
+    // 항공기 콜사인
+    const callsignText = createSvgEl('text', {
+        x: pos.x + 12,
+        y: pos.y + 4,
+        'font-size': '11',
+        fill: 'white',
+        'font-weight': 'bold',
+        'text-anchor': 'start'
+    });
+    callsignText.textContent = flight.callsign;
+    layer.appendChild(callsignText);
+
+    // 고도 표시
+    const altText = createSvgEl('text', {
+        x: pos.x + 12,
+        y: pos.y + 16,
+        'font-size': '9',
+        fill: '#aaa',
+        'text-anchor': 'start'
+    });
+    altText.textContent = `FL${flight.cfl?.replace(/[^0-9]/g, '') || '250'}`;
+    layer.appendChild(altText);
+}
+
+/**
+ * 분리 분석 시각화 (항공편 간 거리, 충돌 표시)
+ */
+export function drawSeparationAnalysis(layer, flights, separationInterval = 180) {
+    const airborneFlights = flights.filter(f => f.currentPos);
+
+    if (airborneFlights.length < 2) return;
+
+    // X축으로 정렬 (앞쪽 먼저)
+    const sorted = [...airborneFlights].sort((a, b) => b.currentPos.x - a.currentPos.x);
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const lead = sorted[i];
+        const follow = sorted[i + 1];
+
+        if (!lead.currentPos || !follow.currentPos) continue;
+
+        const distPx = lead.currentPos.x - follow.currentPos.x;
+
+        // 시각적으로 표시하려면 거리가 적당해야 함
+        if (distPx > 15 && distPx < 600) {
+            const leadTime = timeToSec(lead.ctot) || timeToSec(lead.eobt);
+            const followTime = timeToSec(follow.ctot) || timeToSec(follow.eobt);
+            const timeDiffMin = Math.abs((leadTime - followTime) / 60);
+
+            const isConflict = (leadTime - followTime) < separationInterval && (leadTime - followTime) > 0;
+
+            // 선 그리기 (충돌 시 빨강, 정상 시 흰색)
+            const lineColor = isConflict ? 'rgba(255, 68, 68, 0.8)' : 'rgba(255, 255, 255, 0.4)';
+            const line = createSvgEl('line', {
+                x1: follow.currentPos.x + 10,
+                y1: follow.currentPos.y,
+                x2: lead.currentPos.x - 10,
+                y2: lead.currentPos.y,
+                stroke: lineColor,
+                'stroke-width': isConflict ? '2' : '1',
+                'stroke-dasharray': isConflict ? '8,4' : '4,4'
+            });
+            layer.appendChild(line);
+
+            // 시간 차이 레이블
+            const midX = (lead.currentPos.x + follow.currentPos.x) / 2;
+            const midY = (lead.currentPos.y + follow.currentPos.y) / 2;
+
+            const labelColor = isConflict ? '#ff4444' : 'var(--accent-cyan)';
+            const label = createSvgEl('text', {
+                x: midX,
+                y: midY - 5,
+                'text-anchor': 'middle',
+                fill: labelColor,
+                'font-size': '11',
+                'font-weight': 'bold'
+            });
+            label.textContent = `${Math.round(timeDiffMin)}min`;
+            layer.appendChild(label);
+
+            // 충돌 경고 원
+            if (isConflict) {
+                const warningCircle = createSvgEl('circle', {
+                    cx: midX,
+                    cy: midY,
+                    r: '20',
+                    fill: 'none',
+                    stroke: '#ff4444',
+                    'stroke-width': '2',
+                    opacity: '0.7'
+                });
+                layer.appendChild(warningCircle);
+            }
+        }
+    }
+}

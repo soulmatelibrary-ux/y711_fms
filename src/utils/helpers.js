@@ -118,3 +118,55 @@ export function parseTime(timeStr) {
 
     return null;
 }
+
+/**
+ * CTOT 상태 결정 함수
+ * @param {Object} flight - 항공편 정보
+ * @param {Object} prevFlight - 이전 항공편
+ * @param {Object} nextFlight - 다음 항공편
+ * @param {number} separationInterval - 분리 기준 (초 단위)
+ * @returns {string} 상태: 'normal', 'delayed', 'early', 'manual', 'conflict'
+ */
+export function getCtotStatus(flight, prevFlight, nextFlight, separationInterval = 180) {
+    const eobtSec = timeStringToSeconds(flight.eobt_utc || flight.eobt);
+    const ctotSec = timeStringToSeconds(flight.ctot || flight.eobt_utc || flight.eobt);
+
+    if (!ctotSec || !eobtSec) return 'normal';
+
+    const diffMin = (ctotSec - eobtSec) / 60;
+    const statuses = [];
+
+    // 간격 위반 체크 (최우선)
+    if (nextFlight && (nextFlight.ctot || nextFlight.eobt_utc)) {
+        const nextCtotSec = timeStringToSeconds(nextFlight.ctot || nextFlight.eobt_utc);
+        if (nextCtotSec) {
+            const gapSec = nextCtotSec - ctotSec;
+            if (gapSec < separationInterval && gapSec >= 0) {
+                statuses.push('conflict');
+            }
+        }
+    }
+
+    // 수동 변경 체크
+    if (flight.isManualCtot) {
+        statuses.push('manual');
+    }
+
+    // 지연/앞당김 체크 (5분 이상)
+    if (diffMin >= 5) {
+        statuses.push('delayed');
+    } else if (diffMin <= -5) {
+        statuses.push('early');
+    }
+
+    // 우선순위: conflict > manual > delayed/early > normal
+    if (statuses.includes('conflict')) return 'conflict';
+    if (statuses.includes('manual')) return 'manual';
+    if (statuses.includes('delayed')) return 'delayed';
+    if (statuses.includes('early')) return 'early';
+
+    return 'normal';
+}
+
+// 별칭: timeToSec() = timeStringToSeconds()
+export const timeToSec = timeStringToSeconds;

@@ -4,13 +4,16 @@
 
 import { showToast } from '../utils/notifications.js';
 import { getDatabase, queryFlights } from '../utils/database.js';
+import * as SimService from '../services/simulation.js';
 
 export class RightPanel {
     constructor() {
-        this.simRunning = false;
-        this.simSpeed = 1;
-        this.simTimeSeconds = 0;
         this.flights = [];
+        this.simTimeSeconds = 0;
+        this.timelineStartHour = 5;
+        this.timelineEndHour = 24;
+        this.selectedFlightId = null;
+        this.separationInterval = 180; // 기본값: 3분
     }
 
     /**
@@ -24,10 +27,10 @@ export class RightPanel {
                     <div class="card-header compact">
                         <h2>Time Flow</h2>
                         <div class="timeline-legend">
-                            <span class="legend-item"><i class="dot gmp"></i> RKSS</span>
-                            <span class="legend-item"><i class="dot cjj"></i> RKTU</span>
-                            <span class="legend-item"><i class="dot kuv"></i> RKJK</span>
-                            <span class="legend-item"><i class="dot kwj"></i> RKJJ</span>
+                            <span class="legend-item"><i class="dot" style="background: #58a6ff;"></i> RKSS</span>
+                            <span class="legend-item"><i class="dot" style="background: #bc8cff;"></i> RKTU</span>
+                            <span class="legend-item"><i class="dot" style="background: #39c5bb;"></i> RKJK</span>
+                            <span class="legend-item"><i class="dot" style="background: #d29922;"></i> RKJJ</span>
                         </div>
                     </div>
                     <div class="timeline-scroll-area">
@@ -77,12 +80,17 @@ export class RightPanel {
                     </div>
                     <div class="map-container">
                         <svg id="flight-map-svg" viewBox="0 0 1600 850" preserveAspectRatio="none">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                                    <polygon points="0 0, 10 3, 0 6" fill="#fff" />
+                                </marker>
+                            </defs>
                             <g id="altitude-lanes"></g>
                             <g id="route-lines"></g>
                             <g id="merge-points"></g>
                             <g id="airport-labels"></g>
-                            <g id="airport-callouts"></g>
                             <g id="aircraft-layer"></g>
+                            <g id="separation-analysis"></g>
                         </svg>
                     </div>
                 </section>
@@ -98,22 +106,53 @@ export class RightPanel {
         this.loadFlights();
         this.renderTimeline();
         this.renderMap();
+
+        // 시뮬레이션 업데이트 이벤트 수신
+        window.addEventListener('simulation-update', (e) => this.onSimulationUpdate(e));
+
+        // LeftPanel의 항공편 선택 이벤트 수신
+        window.addEventListener('flight-selected', (e) => this.onFlightSelected(e));
     }
 
     /**
      * 이벤트 바인딩
      */
     bindEvents() {
-        // Simulation controls
-        document.getElementById('play-btn')?.addEventListener('click', () => this.playSim());
-        document.getElementById('stop-btn')?.addEventListener('click', () => this.stopSim());
-        document.getElementById('prev-btn')?.addEventListener('click', () => this.prevSim());
-        document.getElementById('next-btn')?.addEventListener('click', () => this.nextSim());
-        document.getElementById('speed-select')?.addEventListener('change', (e) => {
-            this.simSpeed = parseInt(e.target.value);
+        // 이전
+        document.getElementById('prev-btn')?.addEventListener('click', () => {
+            SimService.previousSimulation();
+            this.updateMapAndTimeline();
         });
 
-        // Full screen
+        // 재생/일시정지
+        document.getElementById('play-btn')?.addEventListener('click', () => {
+            if (SimService.isSimulationRunning()) {
+                SimService.pauseSimulation();
+            } else {
+                SimService.startSimulation();
+            }
+            this.updatePlayButtonUI();
+        });
+
+        // 정지
+        document.getElementById('stop-btn')?.addEventListener('click', () => {
+            SimService.stopSimulation();
+            this.updatePlayButtonUI();
+            this.updateMapAndTimeline();
+        });
+
+        // 다음
+        document.getElementById('next-btn')?.addEventListener('click', () => {
+            SimService.nextSimulation();
+            this.updateMapAndTimeline();
+        });
+
+        // 속도 변경
+        document.getElementById('speed-select')?.addEventListener('change', (e) => {
+            SimService.setSimulationSpeed(parseInt(e.target.value));
+        });
+
+        // 전체화면
         document.getElementById('map-fullscreen-btn')?.addEventListener('click', () => this.toggleFullscreen());
     }
 
@@ -128,7 +167,7 @@ export class RightPanel {
         }
 
         this.flights = queryFlights();
-        console.log(`✅ Loaded ${this.flights.length} flights`);
+        console.log(`✅ RightPanel loaded ${this.flights.length} flights`);
     }
 
     /**
@@ -138,162 +177,338 @@ export class RightPanel {
         const wrapper = document.getElementById('timelines-wrapper');
         if (!wrapper) return;
 
-        // Clear existing flights from timeline
-        wrapper.querySelectorAll('.flight-bar').forEach(el => el.remove());
+        // 기존 항공편 블록 제거
+        wrapper.querySelectorAll('.flight-block').forEach(el => el.remove());
 
-        // Add flight bars to timeline
+        if (this.flights.length === 0) return;
+
+        const windowStartSec = this.timelineStartHour * 3600;
+        const PX_PER_SEC = 1350 / 3600; // 픽셀 per 초
+
         this.flights.forEach(flight => {
             const track = wrapper.querySelector(`[data-airport="${flight.dept}"]`);
             if (!track) return;
 
-            const bar = document.createElement('div');
-            bar.className = 'flight-bar';
-            bar.textContent = flight.callsign;
-            bar.style.left = '10%'; // Placeholder position
-            bar.style.width = '5%';
+            // CTOT 또는 EOBT 시간
+            const timeVal = flight.ctot || flight.eobt_utc || flight.eobt || '0000';
+            const startSec = this.timeToSec(timeVal);
+            const left = (startSec - windowStartSec) * PX_PER_SEC;
 
-            track.appendChild(bar);
+            // 항공편 블록 생성
+            const block = document.createElement('div');
+            block.className = `flight-block ${this.selectedFlightId === flight.id ? 'selected' : ''}`;
+            block.dataset.id = flight.id;
+            block.style.left = `${left}px`;
+
+            // 공항 색상
+            const airportColors = {
+                'RKSS': '#58a6ff',
+                'RKTU': '#bc8cff',
+                'RKJK': '#39c5bb',
+                'RKJJ': '#d29922',
+                'RKPC': '#ff6b6b'
+            };
+            const color = airportColors[flight.dept] || '#58a6ff';
+            block.style.borderColor = color;
+            block.style.background = `linear-gradient(to right, ${color}44, ${color}22)`;
+
+            block.textContent = flight.callsign;
+
+            // 클릭 이벤트
+            block.addEventListener('click', () => {
+                this.selectFlight(flight.id);
+            });
+
+            track.appendChild(block);
         });
+
+        // 현재 시간 마커 업데이트
+        this.updateTimeMarker();
     }
 
     /**
-     * Map 렌더링
+     * Map 렌더링 (공항, 웨이포인트, 경로)
      */
     renderMap() {
         const svg = document.getElementById('flight-map-svg');
         if (!svg) return;
 
-        // Clear previous drawings
-        const aircraftLayer = document.getElementById('aircraft-layer');
-        if (aircraftLayer) {
-            aircraftLayer.innerHTML = '';
+        // 공항 그리기
+        const airportLabelsGroup = document.getElementById('airport-labels');
+        if (airportLabelsGroup) {
+            airportLabelsGroup.innerHTML = '';
+
+            const airports = [
+                { code: 'RKSS', name: '김포', x: 150, y: 800, color: '#58a6ff' },
+                { code: 'RKTU', name: '청주', x: 300, y: 750, color: '#bc8cff' },
+                { code: 'RKJK', name: '군산', x: 500, y: 850, color: '#39c5bb' },
+                { code: 'RKJJ', name: '광주', x: 700, y: 800, color: '#d29922' },
+                { code: 'RKPC', name: '제주', x: 1400, y: 750, color: '#ff6b6b' }
+            ];
+
+            airports.forEach(apt => {
+                // 공항 원
+                const circle = SimService.createSvgEl('circle', {
+                    cx: apt.x,
+                    cy: apt.y,
+                    r: '12',
+                    fill: apt.color,
+                    opacity: '0.7'
+                });
+                airportLabelsGroup.appendChild(circle);
+
+                // 공항 코드
+                const text = SimService.createSvgEl('text', {
+                    x: apt.x,
+                    y: apt.y + 25,
+                    'text-anchor': 'middle',
+                    fill: 'white',
+                    'font-size': '10',
+                    'font-weight': 'bold'
+                });
+                text.textContent = apt.code;
+                airportLabelsGroup.appendChild(text);
+            });
         }
 
-        // Draw flight paths and aircraft
-        this.flights.forEach((flight, index) => {
-            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            circle.setAttribute('cx', 100 + index * 50);
-            circle.setAttribute('cy', 400);
-            circle.setAttribute('r', '8');
-            circle.setAttribute('fill', this.getAirportColor(flight.dept));
+        // 웨이포인트 그리기
+        const mergePointsGroup = document.getElementById('merge-points');
+        if (mergePointsGroup) {
+            mergePointsGroup.innerHTML = '';
 
-            document.getElementById('aircraft-layer')?.appendChild(circle);
+            const waypoints = [
+                { name: 'BULTI', x: 250, y: 400 },
+                { name: 'MEKIL', x: 350, y: 380 },
+                { name: 'GONAX', x: 450, y: 420 },
+                { name: 'BEDES', x: 550, y: 400 },
+                { name: 'ELPOS', x: 650, y: 380 },
+                { name: 'MANGI', x: 750, y: 400 },
+                { name: 'DALSU', x: 850, y: 390 },
+                { name: 'NULDI', x: 950, y: 410 },
+                { name: 'DOTOL', x: 1050, y: 400 }
+            ];
+
+            waypoints.forEach(wp => {
+                // 웨이포인트 마크
+                const rect = SimService.createSvgEl('rect', {
+                    x: wp.x - 4,
+                    y: wp.y - 4,
+                    width: '8',
+                    height: '8',
+                    fill: '#ffd700',
+                    opacity: '0.6'
+                });
+                mergePointsGroup.appendChild(rect);
+
+                // 웨이포인트 이름
+                const text = SimService.createSvgEl('text', {
+                    x: wp.x,
+                    y: wp.y - 12,
+                    'text-anchor': 'middle',
+                    fill: '#ffd700',
+                    'font-size': '9',
+                    opacity: '0.8'
+                });
+                text.textContent = wp.name;
+                mergePointsGroup.appendChild(text);
+            });
+        }
+
+        // 경로 선 그리기
+        const routeLinesGroup = document.getElementById('route-lines');
+        if (routeLinesGroup) {
+            routeLinesGroup.innerHTML = '';
+
+            const legs = [
+                { from: { x: 150, y: 800 }, to: { x: 250, y: 400 } }, // RKSS -> BULTI
+                { from: { x: 250, y: 400 }, to: { x: 350, y: 380 } },  // BULTI -> MEKIL
+                { from: { x: 350, y: 380 }, to: { x: 450, y: 420 } },  // MEKIL -> GONAX
+                { from: { x: 450, y: 420 }, to: { x: 1400, y: 750 } }  // 직접 제주로
+            ];
+
+            legs.forEach(leg => {
+                const line = SimService.createSvgEl('line', {
+                    x1: leg.from.x,
+                    y1: leg.from.y,
+                    x2: leg.to.x,
+                    y2: leg.to.y,
+                    stroke: 'rgba(255, 255, 255, 0.2)',
+                    'stroke-width': '1',
+                    'stroke-dasharray': '5,5'
+                });
+                routeLinesGroup.appendChild(line);
+            });
+        }
+    }
+
+    /**
+     * 항공편 위치 업데이트 및 맵 다시 그리기
+     */
+    updateFlightMap() {
+        const aircraftLayer = document.getElementById('aircraft-layer');
+        const separationLayer = document.getElementById('separation-analysis');
+
+        if (!aircraftLayer || !separationLayer) return;
+
+        aircraftLayer.innerHTML = '';
+        separationLayer.innerHTML = '';
+
+        const simTime = SimService.getSimulationTime();
+        const isFullscreen = document.querySelector('.map-section')?.classList.contains('fullscreen');
+
+        // 각 항공편의 위치 계산 및 그리기
+        this.flights.forEach(flight => {
+            if (!flight.ctot && !flight.eobt_utc && !flight.eobt) return;
+
+            // 위치 계산
+            const pos = SimService.calculateAircraftPosition(
+                flight,
+                flight.routeWaypoints || [],
+                isFullscreen
+            );
+
+            // 위치 저장 (분리 분석용)
+            flight.currentPos = pos;
+
+            // 공항별 색상
+            const airportColors = {
+                'RKSS': '#58a6ff',
+                'RKTU': '#bc8cff',
+                'RKJK': '#39c5bb',
+                'RKJJ': '#d29922',
+                'RKPC': '#ff6b6b'
+            };
+            const color = airportColors[flight.dept] || '#58a6ff';
+
+            // 항공기 그리기
+            SimService.drawAircraft(aircraftLayer, flight, pos, color);
         });
 
-        // Draw airports
-        this.drawAirports();
-        this.drawWaypoints();
+        // 분리 분석 그리기
+        SimService.drawSeparationAnalysis(separationLayer, this.flights, this.separationInterval);
     }
 
     /**
-     * 공항 그리기
+     * 타임라인 시간 마커 업데이트
      */
-    drawAirports() {
-        const airports = [
-            { code: 'RKSS', name: '김포', x: 150, y: 400 },
-            { code: 'RKTU', name: '청주', x: 300, y: 350 },
-            { code: 'RKJK', name: '군산', x: 500, y: 450 },
-            { code: 'RKJJ', name: '광주', x: 700, y: 500 },
-            { code: 'RKPC', name: '제주', x: 1400, y: 450 }
-        ];
+    updateTimeMarker() {
+        const marker = document.getElementById('time-marker');
+        if (!marker) return;
 
-        // 실제 구현에서는 SVG에 그림
-        console.log('Airports drawn:', airports.length);
-    }
+        const simTime = SimService.getSimulationTime();
+        const windowStartSec = this.timelineStartHour * 3600;
+        const PX_PER_SEC = 1350 / 3600;
 
-    /**
-     * 웨이포인트 그리기
-     */
-    drawWaypoints() {
-        const waypoints = ['BULTI', 'MEKIL', 'GONAX', 'BEDES', 'ELPOS', 'MANGI', 'DALSU', 'NULDI', 'DOTOL'];
-
-        // 실제 구현에서는 SVG에 그림
-        console.log('Waypoints drawn:', waypoints.length);
-    }
-
-    /**
-     * 공항별 색상
-     */
-    getAirportColor(airportCode) {
-        const colors = {
-            'RKSS': '#58a6ff',  // 김포 - 파란색
-            'RKTU': '#bc8cff',  // 청주 - 보라색
-            'RKJK': '#39c5bb',  // 군산 - 청록색
-            'RKJJ': '#d29922'   // 광주 - 주황색
-        };
-        return colors[airportCode] || '#ffffff';
-    }
-
-    /**
-     * 시뮬레이션 재생
-     */
-    playSim() {
-        this.simRunning = true;
-        console.log('🎬 Simulation started');
-        this.updateSimulation();
-    }
-
-    /**
-     * 시뮬레이션 중지
-     */
-    stopSim() {
-        this.simRunning = false;
-        this.simTimeSeconds = 0;
-        this.updateSimClock();
-        console.log('⏹ Simulation stopped');
-    }
-
-    /**
-     * 시뮬레이션 이전
-     */
-    prevSim() {
-        this.simTimeSeconds = Math.max(0, this.simTimeSeconds - 300);
-        this.updateSimClock();
-    }
-
-    /**
-     * 시뮬레이션 다음
-     */
-    nextSim() {
-        this.simTimeSeconds += 300;
-        this.updateSimClock();
-    }
-
-    /**
-     * 시뮬레이션 업데이트
-     */
-    updateSimulation() {
-        if (!this.simRunning) return;
-
-        this.simTimeSeconds += this.simSpeed;
-        this.updateSimClock();
-        this.renderMap();
-
-        requestAnimationFrame(() => this.updateSimulation());
+        const left = (simTime - windowStartSec) * PX_PER_SEC;
+        marker.style.left = `${Math.max(0, left)}px`;
     }
 
     /**
      * 시뮬레이션 시계 업데이트
      */
-    updateSimClock() {
-        const hours = Math.floor(this.simTimeSeconds / 3600);
-        const minutes = Math.floor((this.simTimeSeconds % 3600) / 60);
-        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-
+    updateSimulationClock() {
         const clockEl = document.getElementById('sim-clock');
         if (clockEl) {
-            clockEl.textContent = timeStr;
+            clockEl.textContent = SimService.getSimulationTimeString();
         }
     }
 
     /**
-     * 전체 화면 전환
+     * 맵과 타임라인 업데이트 (시뮬레이션 변경 시)
+     */
+    updateMapAndTimeline() {
+        this.updateSimulationClock();
+        this.updateTimeMarker();
+        this.updateFlightMap();
+    }
+
+    /**
+     * 시뮬레이션 업데이트 이벤트 핸들러
+     */
+    onSimulationUpdate(event) {
+        this.updateMapAndTimeline();
+    }
+
+    /**
+     * 항공편 선택 이벤트 핸들러
+     */
+    onFlightSelected(event) {
+        const flightId = event.detail?.flightId;
+        if (flightId) {
+            this.selectFlight(flightId);
+        }
+    }
+
+    /**
+     * 항공편 선택
+     */
+    selectFlight(flightId) {
+        this.selectedFlightId = flightId;
+
+        // 타임라인 업데이트
+        document.querySelectorAll('.flight-block').forEach(block => {
+            block.classList.toggle('selected', block.dataset.id === flightId);
+        });
+
+        // 해당 블록을 뷰에 보이도록 스크롤
+        const block = document.querySelector(`.flight-block[data-id="${flightId}"]`);
+        if (block) {
+            block.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        }
+    }
+
+    /**
+     * 재생 버튼 UI 업데이트
+     */
+    updatePlayButtonUI() {
+        const playBtn = document.getElementById('play-btn');
+        if (playBtn) {
+            playBtn.textContent = SimService.isSimulationRunning() ? '⏸' : '▶';
+            playBtn.title = SimService.isSimulationRunning() ? 'Pause' : 'Play';
+        }
+    }
+
+    /**
+     * 전체 화면 토글
      */
     toggleFullscreen() {
-        const rightPanel = document.querySelector('.right-panel');
-        if (!rightPanel) return;
+        const mapSection = document.querySelector('.map-section');
+        if (mapSection) {
+            mapSection.classList.toggle('fullscreen');
+            // 맵 재렌더링 (화면 크기 변경으로 인한)
+            setTimeout(() => this.updateFlightMap(), 100);
+        }
+    }
 
-        rightPanel.classList.toggle('fullscreen');
-        console.log('Fullscreen toggled');
+    /**
+     * 시간 문자열을 초로 변환 (헬퍼)
+     */
+    timeToSec(timeStr) {
+        if (!timeStr) return 0;
+
+        // "HHMM" 형식
+        if (/^\d{4}$/.test(timeStr)) {
+            const h = parseInt(timeStr.substring(0, 2));
+            const m = parseInt(timeStr.substring(2, 4));
+            return h * 3600 + m * 60;
+        }
+
+        // "HH:MM" 형식
+        const parts = timeStr.split(':');
+        if (parts.length === 2) {
+            const h = parseInt(parts[0]);
+            const m = parseInt(parts[1]);
+            return h * 3600 + m * 60;
+        }
+
+        return 0;
+    }
+
+    /**
+     * 분리 기준 업데이트 (LeftPanel에서 호출)
+     */
+    setSeparationInterval(minutes) {
+        this.separationInterval = minutes * 60;
+        this.updateFlightMap();
     }
 }

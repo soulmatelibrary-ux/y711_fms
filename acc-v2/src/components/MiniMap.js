@@ -8,7 +8,15 @@ import { secToTime, formatDisplay, escapeHtml } from '../utils/timeUtils.js';
 const ZOOM_LEVELS = [1, 1.5, 2, 3, 4];
 
 export class MiniMap {
-    constructor(container, { onFlightSelect } = {}) {
+    constructor(container, {
+        onFlightSelect,
+        zoomInId    = 'mm-zoom-in',
+        zoomOutId   = 'mm-zoom-out',
+        zoomResetId = 'mm-zoom-reset',
+        zoomLabelId = 'mm-zoom-label',
+        altitudeToggleId = '',
+        getAirportFlights = null
+    } = {}) {
         this.container = container;
         this.selectedId = null;
         this._selectedAirport = null; // 항공편 없어도 경로 하이라이트용
@@ -16,6 +24,12 @@ export class MiniMap {
         this.conflicts = [];
         this.onFlightSelect = onFlightSelect || (() => {});
         this._simDots = [];
+        this._zoomInId    = zoomInId;
+        this._zoomOutId   = zoomOutId;
+        this._zoomResetId = zoomResetId;
+        this._zoomLabelId = zoomLabelId;
+        this._altitudeToggleId = altitudeToggleId;
+        this._getAirportFlightsFn = getAirportFlights;
 
         // 줌/패닝 상태
         this._zoomIdx = 0;       // ZOOM_LEVELS 인덱스
@@ -23,6 +37,7 @@ export class MiniMap {
         this._panY = H / 2;     // 뷰 중심 y
         this._panning = false;
         this._panStart = null;
+        this._altitudeView = false;
 
         this._render();
         this._attachZoomHandlers();
@@ -83,8 +98,32 @@ export class MiniMap {
     }
 
     _updateZoomLabel() {
-        const lbl = document.getElementById('mm-zoom-label');
+        const lbl = document.getElementById(this._zoomLabelId);
         if (lbl) lbl.textContent = `${this._zoom()}×`;
+    }
+
+    _updateAltitudeButton() {
+        const btn = document.getElementById(this._altitudeToggleId);
+        if (!btn) return;
+        btn.classList.toggle('active', this._altitudeView);
+        btn.title = this._altitudeView ? '지리 뷰로 전환' : '고도기반 뷰 토글';
+    }
+
+    setAltitudeView(active) {
+        this._altitudeView = !!active;
+        this._render();
+        this._updateAltitudeButton();
+    }
+
+    toggleAltitudeView() {
+        this.setAltitudeView(!this._altitudeView);
+    }
+
+    _altitudeToX(altitudeFt = 0) {
+        const minX = 74;
+        const maxX = W - 30;
+        const clamped = Math.max(0, Math.min(35000, altitudeFt || 0));
+        return minX + (clamped / 35000) * (maxX - minX);
     }
 
     setSimPositions(dots) {
@@ -97,14 +136,18 @@ export class MiniMap {
             layer.classList.add('mm-sim-layer');
             svg.appendChild(layer);
         }
-        layer.innerHTML = this._simDots.map(d => `
-            <circle cx="${d.x.toFixed(1)}" cy="${d.y.toFixed(1)}" r="5"
+        layer.innerHTML = this._simDots.map(d => {
+            const x = this._altitudeView ? this._altitudeToX(d.altitudeFt) : d.x;
+            const fl = Math.round((d.altitudeFt || 0) / 100);
+            return `
+            <circle cx="${x.toFixed(1)}" cy="${d.y.toFixed(1)}" r="5"
                 fill="${d.color}" opacity="0.92" stroke="#fff" stroke-width="1.2">
-                <title>${escapeHtml(d.callsign)}</title>
+                <title>${escapeHtml(d.callsign)}${this._altitudeView ? ` · FL${String(fl).padStart(3, '0')}` : ''}</title>
             </circle>
-            <text x="${(d.x + 7).toFixed(1)}" y="${(d.y + 4).toFixed(1)}"
+            <text x="${(x + 7).toFixed(1)}" y="${(d.y + 4).toFixed(1)}"
                 fill="${d.color}" font-size="8" font-family="monospace">${escapeHtml(d.callsign)}</text>
-        `).join('');
+        `;
+        }).join('');
     }
 
     clearSimPositions() {
@@ -120,6 +163,7 @@ export class MiniMap {
         const svgContent = `<svg viewBox="${this._getViewBox()}" xmlns="http://www.w3.org/2000/svg"
             style="width:100%;height:100%;cursor:default;display:block">
             <rect x="0" y="0" width="${W}" height="${H}" fill="#0d1117"/>
+            ${this._altitudeView ? this._drawAltitudeOverlay() : ''}
 
             ${ROUTES.map(([a, b]) => {
                 const p1 = GEO[a], p2 = GEO[b];
@@ -147,7 +191,7 @@ export class MiniMap {
                     const r = 9 * nodeSz;
                     const tx = p.side === 'left' ? p.x - r - 2 : p.x + r + 2;
                     const anchor = p.side === 'left' ? 'end' : 'start';
-                    const flightsHere = this.flights.filter(f => f.dept === id && f.status !== 'DEP');
+                    const flightsHere = this._getAirportFlights(id);
                     const tip = flightsHere.length ? `${id}: ${flightsHere.map(f => escapeHtml(f.callsign)).join(', ')}` : id;
                     const badge = flightsHere.length > 0 ? `
                         <circle cx="${p.x + (p.side === 'left' ? r - 2 : -(r - 2))}" cy="${p.y - r + 2}" r="6"
@@ -174,6 +218,8 @@ export class MiniMap {
                     const fill = isConflict ? '#ff3b30' : (id === 'BULTI' ? '#7a8a9a' : '#ce93d8');
                     const stroke = isConflict ? '#ff6b6b' : (id === 'BULTI' ? '#4a5568' : '#8b5cf6');
                     const sz = (id === 'BULTI' ? 5 : 7) * nodeSz;
+                    const labelDx = Number.isFinite(p.labelDx) ? p.labelDx : (sz + 4);
+                    const labelDy = Number.isFinite(p.labelDy) ? p.labelDy : 4;
                     const flightsHere = this.flights.filter(f =>
                         (f.routeWaypoints || []).some(w => w.name === id)
                     );
@@ -181,7 +227,7 @@ export class MiniMap {
                     return `<g class="mm-wp" data-wp="${id}" style="cursor:${flightsHere.length ? 'pointer' : 'default'}">
                         <polygon points="${p.x},${p.y - sz} ${p.x + sz},${p.y} ${p.x},${p.y + sz} ${p.x - sz},${p.y}"
                             fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
-                        <text x="${p.x + sz + 4}" y="${p.y + 4}" fill="${fill}" font-size="10" font-family="monospace" font-weight="bold">${p.label}</text>
+                        <text x="${p.x + labelDx}" y="${p.y + labelDy}" fill="${fill}" font-size="10" font-family="monospace" font-weight="bold">${p.label}</text>
                         <title>${tip}</title>
                     </g>`;
                 } else if (p.type === 'dest') {
@@ -203,8 +249,27 @@ export class MiniMap {
         this.container.innerHTML = svgContent;
         this._attachClickHandlers();
         this._attachWheelAndPan();
+        this._updateAltitudeButton();
         // 시뮬레이션 레이어 복원: innerHTML 교체 후 sim 점이 사라지지 않도록
         if (this._simDots.length) this.setSimPositions(this._simDots);
+    }
+
+    _drawAltitudeOverlay() {
+        const lanes = [0, 100, 200, 300, 350];
+        const laneLines = lanes.map(fl => {
+            const x = this._altitudeToX(fl * 100);
+            return `
+                <line x1="${x}" y1="22" x2="${x}" y2="${H - 18}" stroke="rgba(255,215,0,0.16)" stroke-width="0.8" stroke-dasharray="3,3"/>
+                <text x="${x}" y="15" text-anchor="middle" fill="rgba(255,215,0,0.8)" font-size="8" font-family="monospace">FL${String(fl).padStart(3, '0')}</text>
+            `;
+        }).join('');
+
+        return `
+            <g class="mm-alt-overlay">
+                <rect x="8" y="8" width="94" height="14" rx="4" fill="rgba(255,215,0,0.08)" stroke="rgba(255,215,0,0.28)"/>
+                <text x="55" y="18" text-anchor="middle" fill="#ffe08a" font-size="8" font-family="monospace" font-weight="bold">ALTITUDE VIEW</text>
+                ${laneLines}
+            </g>`;
     }
 
     _drawLegend() {
@@ -233,7 +298,7 @@ export class MiniMap {
                 this.selectedId = null;
                 this._render();
                 // 해당 공항 미출발 첫 항공편이 있으면 선택 이벤트도 발생
-                const f = this.flights.find(fl => fl.dept === icao && fl.status !== 'DEP');
+                const f = this._getAirportFlights(icao)[0];
                 if (f) this.onFlightSelect(f);
             });
         });
@@ -326,12 +391,14 @@ export class MiniMap {
     }
 
     _attachZoomHandlers() {
-        // 외부 버튼 (main.js 렌더링)에 연결
+        // 외부 버튼 (main.js 렌더링)에 연결 — 인스턴스별 ID 사용
         document.addEventListener('click', (e) => {
-            if (e.target.id === 'mm-zoom-in') this.zoomIn();
-            if (e.target.id === 'mm-zoom-out') this.zoomOut();
-            if (e.target.id === 'mm-zoom-reset') this.resetZoom();
+            if (e.target.id === this._zoomInId)    this.zoomIn();
+            if (e.target.id === this._zoomOutId)   this.zoomOut();
+            if (e.target.id === this._zoomResetId) this.resetZoom();
+            if (this._altitudeToggleId && e.target.id === this._altitudeToggleId) this.toggleAltitudeView();
         });
+        this._updateAltitudeButton();
     }
 
     _getActiveAirport() {
@@ -340,6 +407,14 @@ export class MiniMap {
             if (f) return f.dept;
         }
         return this._selectedAirport || null;
+    }
+
+    _getAirportFlights(icao) {
+        if (typeof this._getAirportFlightsFn === 'function') {
+            const arr = this._getAirportFlightsFn(icao);
+            return Array.isArray(arr) ? arr : [];
+        }
+        return this.flights.filter(f => f.dept === icao && f.status !== 'DEP');
     }
 
     _isRouteActive(a, b) {

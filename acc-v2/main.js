@@ -1898,9 +1898,43 @@ function updateBadges() {
 function startClock() {
     if (_clockTimer) clearInterval(_clockTimer);
     const el = document.getElementById('clock');
+    // KST 날짜(UTC+9) 기준으로 변경 감지 — UTC 15:00 = KST 00:00
+    let _lastKstDate = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
     _clockTimer = setInterval(() => {
         if (el) el.textContent = formatHHMMSS() + 'Z';
+        const kstDate = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+        if (kstDate !== _lastKstDate) {
+            _lastKstDate = kstDate;
+            reloadFlightsForNewDay();
+        }
     }, 1000);
+}
+
+async function reloadFlightsForNewDay() {
+    showToast('날짜가 변경되었습니다. 항공편 목록을 갱신합니다...', 'info');
+    try {
+        const res = await apiGet('/api/v2/flights/today');
+        state.flights = recalcAll(res.data || []);
+        state.prevFlights = state.flights.map(f => ({ ...f }));
+        _recomputeConflicts();
+        state.whatifEngine = new WhatifEngine(state.flights);
+        initAtdManager(state);
+        ribbon.setFlights(state.flights);
+        ribbon.setConflicts(state.conflicts);
+        miniMap.setFlights(state.flights);
+        miniMap.setConflicts(state.conflicts);
+        popupMap?.setFlights(state.flights);
+        popupMap?.setConflicts(state.conflicts);
+        queue.setFlights(state.flights);
+        queue.setConflicts(state.conflicts);
+        if (watchlist) watchlist.update(state.conflicts);
+        conflictWizard.setFlights(state.flights);
+        updateBadges();
+        updateAlertBar();
+        showToast('항공편 목록이 갱신되었습니다', 'success');
+    } catch (err) {
+        showToast('항공편 갱신 실패 — 수동 새로고침 필요', 'error');
+    }
 }
 
 // ============================================================

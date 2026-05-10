@@ -1,27 +1,28 @@
 # Y711 FMS - 모듈식 아키텍처
 
+진입점은 `index.html` → `/src/main-modular.js`이며, 구버전 모놀리식 `main.js`(약 2,935줄)는 [`backup/misc/main.js.bak`](../backup/misc/main.js.bak)으로 보관됩니다.
+
 ## 📁 디렉토리 구조
 
 ```
 src/
-├── components/          # 재사용 가능한 UI 컴포넌트
-│   ├── LeftPanel.js     # 왼쪽 패널 (항공편 목록)
-│   ├── RightPanel.js    # 오른쪽 패널 (Timeline + Map)
-│   └── Header.js        # (준비 중) 헤더 컴포넌트
+├── components/          # UI 컴포넌트
+│   ├── Header.js        # 상단 헤더 (Excel 업로드, 로그아웃)
+│   ├── LeftPanel.js     # 왼쪽 패널 (항공편 목록 / EOBT·ATD·CTOT)
+│   ├── RightPanel.js    # 오른쪽 패널 (Timeline + Live Route Map)
+│   └── Modals.js        # 모달 4종 (스케줄 기간 선택 외)
 │
-├── utils/              # 공용 유틸 함수
-│   ├── database.js     # SQLite 데이터베이스 관리
-│   ├── notifications.js # 토스트 알림 시스템
-│   ├── helpers.js      # 일반 헬퍼 함수
-│   └── api.js          # (준비 중) API 호출
+├── services/            # 비즈니스 로직
+│   ├── ctot.js          # CTOT 계산 / 충돌 감지
+│   └── simulation.js    # 시뮬레이션 엔진 (1×~20×)
 │
-├── services/           # 비즈니스 로직 (준비 중)
-│   ├── ctot.js         # CTOT 계산
-│   └── simulation.js    # 시뮬레이션 엔진
+├── utils/               # 공용 유틸
+│   ├── database.js      # sql.js 초기화 / 쿼리
+│   ├── helpers.js       # 시간·UUID·포맷 유틸
+│   └── notifications.js # 토스트 알림
 │
-├── style.css           # 전역 스타일
-├── main.js             # 기존 메인 파일 (호환성 유지)
-└── main-modular.js     # ✨ 새로운 모듈식 메인 파일
+├── style.css            # 전역 스타일
+└── main-modular.js      # 진입점 (DOM 부트스트랩 + 글로벌 이벤트 바인딩)
 ```
 
 ## 🏗️ 컴포넌트 설계
@@ -120,18 +121,15 @@ utils/notifications.js (피드백)
 
 ## 🚀 사용 방법
 
-### 1. 모듈식 구조 활성화
+### 1. 진입점
 
-기본값은 여전히 `src/main.js`를 사용합니다.
-새로운 모듈식 구조를 사용하려면 `index.html`에서:
+`index.html`은 다음 한 줄로 모듈식 진입점을 로드합니다:
 
 ```html
-<!-- 기존 (호환성) -->
-<script type="module" src="/src/main.js"></script>
-
-<!-- 새로운 모듈식 -->
 <script type="module" src="/src/main-modular.js"></script>
 ```
+
+`main-modular.js`는 인증 확인 → DB 초기화 → 컴포넌트 렌더 → 이벤트 바인딩 → 시뮬레이션 초기화 순서로 부트스트랩합니다.
 
 ### 2. 새로운 컴포넌트 추가
 
@@ -182,23 +180,21 @@ npm run build
 
 ---
 
-## 🔄 마이그레이션 계획
+## 🔄 마이그레이션 진행 (완료)
 
 ### Phase 1: 기본 구조 분리 ✅
-- [x] LeftPanel 분리
-- [x] RightPanel 분리
-- [x] Utils 분리
-- [x] 새로운 main.js 작성
+- [x] LeftPanel / RightPanel / Utils 분리
 
-### Phase 2: 나머지 컴포넌트 분리 (준비 중)
-- [ ] Header 컴포넌트
-- [ ] Modals 컴포넌트
-- [ ] Services (CTOT, Simulation)
+### Phase 2: 나머지 컴포넌트 분리 ✅
+- [x] Header / Modals 컴포넌트
+- [x] Services (CTOT, Simulation)
 
-### Phase 3: 기존 main.js 점진적 제거
-- [ ] 호환성 테스트
-- [ ] 기존 기능 모두 이동
-- [ ] main.js 정리
+### Phase 3: 기존 main.js 제거 ✅
+- [x] 호환성 테스트 통과
+- [x] 모든 기능을 모듈식으로 이동
+- [x] 모놀리식 `main.js` → `backup/misc/main.js.bak` 보관
+
+> 자세한 운영 사항은 [`operations/OPERATIONS.md`](./operations/OPERATIONS.md) 참고.
 
 ---
 
@@ -215,14 +211,5 @@ npm run build
 
 ---
 
-## 🎯 다음 단계
-
-1. 새로운 구조로 빌드 & 테스트
-2. 나머지 컴포넌트 분리
-3. 통합 테스트
-4. 기존 main.js 제거
-
----
-
 **생성일**: 2026-02-07
-**상태**: Phase 1 완료, Phase 2 준비 중
+**상태**: Phase 1~3 완료 (모듈식 전환 완료, 모놀리식 백업 보관)

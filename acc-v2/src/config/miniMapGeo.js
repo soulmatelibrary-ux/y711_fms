@@ -9,7 +9,7 @@
 
 // ── SVG 좌표 공간 크기 ────────────────────────────────────────
 export const MAP_W = 360;
-export const MAP_H = 520;
+export const MAP_H = 810;
 
 // ── 공항 색상 ────────────────────────────────────────────────
 export const AIRPORT_COLOR = {
@@ -30,16 +30,16 @@ export const AIRPORT_BG = {
 // type: 'airport' | 'conv' | 'junction' | 'dest'
 // junction: 레이블 없는 소형 합류 다이아몬드
 export const GEO = {
-    RKSS:  { x: 72,  y: 35,  label: '김포',  type: 'airport',  side: 'left'  },
-    RKJK:  { x: 72,  y: 240, label: '군산',  type: 'airport',  side: 'left'  },
-    RKTU:  { x: 262, y: 175, label: '청주',  type: 'airport',  side: 'right' },
-    RKJJ:  { x: 262, y: 315, label: '광주',  type: 'airport',  side: 'right' },
-    BULTI: { x: 152, y: 95,  label: 'BULTI', type: 'conv' },
-    MEKIL: { x: 152, y: 175, label: 'MEKIL', type: 'conv' },
-    JNKR:  { x: 152, y: 290, label: '',      type: 'junction' },
-    MANGI: { x: 152, y: 335, label: 'MANGI', type: 'conv' },
-    DALSU: { x: 152, y: 415, label: 'DALSU', type: 'conv' },
-    RKPC:  { x: 152, y: 490, label: '제주',  type: 'dest'  },
+    RKSS:  { x: 72,  y: 55,  label: '김포',  type: 'airport',  side: 'left'  },
+    RKJK:  { x: 72,  y: 374, label: '군산',  type: 'airport',  side: 'left'  },
+    RKTU:  { x: 262, y: 248, label: '청주',  type: 'airport',  side: 'right' },
+    RKJJ:  { x: 262, y: 491, label: '광주',  type: 'airport',  side: 'right' },
+    BULTI: { x: 152, y: 148, label: 'BULTI', type: 'conv' },
+    MEKIL: { x: 152, y: 273, label: 'MEKIL', type: 'conv', labelDy: -8 },
+    JNKR:  { x: 152, y: 452, label: '',      type: 'junction' },
+    MANGI: { x: 152, y: 521, label: 'MANGI', type: 'conv' },
+    DALSU: { x: 152, y: 646, label: 'DALSU', type: 'conv' },
+    RKPC:  { x: 152, y: 764, label: '제주',  type: 'dest'  },
 };
 
 // ── MiniMap 렌더링용 경로 엣지 ───────────────────────────────

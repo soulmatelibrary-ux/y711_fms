@@ -7,7 +7,7 @@ import { GEO, AIRPORT_COLOR, ROUTE_CONFIG } from '../config/miniMapGeo.js';
 
 /**
  * 시뮬레이션 시각(simTimeSec)에 각 항공편의 SVG 좌표를 반환한다.
- * @returns {{ id, callsign, x, y, color }[]}
+ * @returns {{ id, callsign, x, y, color, altitudeFt }[]}
  */
 export function computeSimPositions(flights, simTimeSec) {
     const dots = [];
@@ -18,6 +18,11 @@ export function computeSimPositions(flights, simTimeSec) {
 
         const elapsed = simTimeSec - depTime;
         if (elapsed < 0) continue;
+
+        const fl = parseInt(String(f.cfl || '').replace(/[^0-9]/g, ''), 10) || 250;
+        const targetAltFt = fl * 100;
+        const climbRatio = Math.max(0, Math.min(1, elapsed / (10 * 60)));
+        const altitudeFt = Math.round(targetAltFt * climbRatio);
 
         const route = ROUTE_CONFIG[f.dept];
         if (!route) continue;
@@ -48,6 +53,7 @@ export function computeSimPositions(flights, simTimeSec) {
             x: p1.x + (p2.x - p1.x) * frac,
             y: p1.y + (p2.y - p1.y) * frac,
             color: AIRPORT_COLOR[f.dept] || '#4fc3f7',
+            altitudeFt,
         });
     }
     return dots;

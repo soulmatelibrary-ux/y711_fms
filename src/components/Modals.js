@@ -403,17 +403,13 @@ export class Modals {
             return;
         }
 
-        // 기존 데이터와 겹침 확인
-        this.checkScheduleOverlap(startDate, endDate);
-    }
-
-    /**
-     * 스케줄 겹침 확인
-     */
-    checkScheduleOverlap(startDate, endDate) {
-        // TODO: 데이터베이스에서 겹친 날짜 확인
-        this.closeModal('schedule-period-modal');
-        showToast('파일이 업로드되었습니다', 'success');
+        // Header의 uploadExcelData 함수 호출 (main-modular.js에서 Header.init()이 이를 노출함)
+        if (typeof window.headerUploadExcelData === 'function') {
+            window.headerUploadExcelData(startDate, endDate);
+        } else {
+            console.warn('headerUploadExcelData를 찾을 수 없습니다');
+            showToast('시스템 오류: Excel 업로드 함수를 찾을 수 없습니다', 'error');
+        }
     }
 
     /**

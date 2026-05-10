@@ -23,6 +23,51 @@ let db = null;
 let allFlights = [];
 
 // ============================================
+// 글로벌 설정 데이터
+// ============================================
+
+// 공항 정보 데이터베이스
+const airportDatabase = {
+    'RKSS': { name: '김포', color: '#58a6ff', x: 150, taxiTime: 15, mergePoint: 'BULTI' },
+    'RKTU': { name: '청주', color: '#bc8cff', x: 300, taxiTime: 15, mergePoint: 'MEKIL' },
+    'RKJK': { name: '군산', color: '#39c5bb', x: 500, taxiTime: 15, mergePoint: 'GONAX' },
+    'RKJJ': { name: '광주', color: '#d29922', x: 700, taxiTime: 15, mergePoint: 'BEDES' },
+    'RKPC': { name: '제주', color: '#ff6b6b', x: 1400, taxiTime: 15 }
+};
+
+// 웨이포인트 X 좌표
+const waypointsX = {
+    'BULTI': 250, 'MEKIL': 350, 'GONAX': 450, 'BEDES': 550,
+    'ELPOS': 650, 'MANGI': 750, 'DALSU': 850, 'NULDI': 950, 'DOTOL': 1050
+};
+
+// 웨이포인트 네트워크 (경로)
+const waypoints = [
+    { from: 'BULTI', to: 'MEKIL', duration: 15 },
+    { from: 'MEKIL', to: 'GONAX', duration: 20 },
+    { from: 'GONAX', to: 'BEDES', duration: 15 },
+    { from: 'BEDES', to: 'ELPOS', duration: 18 },
+    { from: 'ELPOS', to: 'MANGI', duration: 20 },
+    { from: 'MANGI', to: 'DALSU', duration: 16 },
+    { from: 'DALSU', to: 'NULDI', duration: 14 },
+    { from: 'NULDI', to: 'DOTOL', duration: 15 }
+];
+
+// 구간별 시간 설정 (분 단위)
+const segmentConfig = {
+    'RKSS_BULTI': 10, 'RKTU_MEKIL': 10, 'RKJK_GONAX': 10, 'RKJJ_BEDES': 10,
+    'BULTI_MEKIL': 15, 'MEKIL_GONAX': 20, 'GONAX_BEDES': 15,
+    'BEDES_ELPOS': 18, 'ELPOS_MANGI': 20, 'MANGI_DALSU': 16,
+    'DALSU_NULDI': 14, 'NULDI_DOTOL': 15
+};
+
+// 시뮬레이션 상태
+let simTimeSeconds = 0;
+let simRunning = false;
+let simSpeed = 1;
+let timelineStartHour = 5; // 타임라인 시작 시간 (시간)
+
+// ============================================
 // 애플리케이션 초기화
 // ============================================
 async function initApp() {
@@ -235,7 +280,56 @@ function updateSeparationInterval(minutes) {
     showToast(`분리 기준이 ${minutes}분으로 변경되었습니다. CTOT 재계산을 권장합니다.`, 'info');
 }
 
-// Excel 처리는 Header 컴포넌트에서 담당
+// ============================================
+// Excel 처리 (Header에서 호출)
+// ============================================
+export async function processExcelFile(flights, startDate, endDate) {
+    try {
+        console.log(`📊 Excel 파일 처리: ${flights.length}개 항공편`);
+
+        // 메모리에 로드 (normalized data)
+        allFlights = flights.map((f, idx) => ({
+            id: `${Date.now()}_${idx}`,
+            callsign: f.CALLSIGN || '',
+            dept: f.DEPT || '',
+            dest: f.DEST || '',
+            cfl: f.CFL || 'F250',
+            eobt_utc: f.EOBT_UTC || f.EOBT || '',
+            eobt: f.EOBT_UTC || f.EOBT || '',
+            ctot: f.EOBT_UTC || f.EOBT || '',
+            atd: null,
+            dayOfWeek: f.DAY_OF_WEEK || 1,
+            schedule_start_date: startDate,
+            schedule_end_date: endDate,
+            routeWaypoints: [],
+            status: 'normal'
+        }));
+
+        // LeftPanel의 allFlights도 업데이트
+        if (leftPanel) {
+            leftPanel.allFlights = allFlights;
+            console.log(`✅ ${allFlights.length}개 항공편 로드 완료`);
+
+            // UI 렌더링
+            if (typeof leftPanel.renderFlightList === 'function') {
+                leftPanel.renderFlightList();
+            }
+        }
+
+        showToast(`${allFlights.length}개의 항공편이 로드되었습니다`, 'success');
+        return true;
+
+    } catch (error) {
+        console.error('Excel 처리 오류:', error);
+        showToast('Excel 데이터 처리 실패: ' + error.message, 'error');
+        return false;
+    }
+}
+
+// ============================================
+// 전역 함수 노출 (Header 컴포넌트에서 사용)
+// ============================================
+window.processExcelFile = processExcelFile;
 
 // ============================================
 // 페이지 로드 시 초기화
