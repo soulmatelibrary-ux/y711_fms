@@ -31,11 +31,18 @@ export class AuditTimeline {
                 .map(d => `${d.callsign} ${d.prevCtot}→${d.newCtot}(${d.deltaMins > 0 ? '+' : ''}${d.deltaMins}m)`)
                 .join(', ');
             const clickable = this.onFlightSelect ? 'audit-entry-click' : '';
-            return `<div class="audit-entry ${clickable}" data-flight-id="${e.flightId || ''}">
+            const type = e.eventType || (e.newAtd ? 'atd_set' : 'ctot_adjust');
+            const typeLabel = type === 'conflict_resolve' ? '충돌해결'
+                : type === 'ctot_adjust' ? '수동조정' : '';
+            const actionText = type === 'atd_set'
+                ? `ATD ${e.newAtd || ''}Z${e.prevAtd ? ` ← ${e.prevAtd}Z` : ''}`
+                : `CTOT ${e.newCtot || ''}Z${e.prevCtot ? ` ← ${e.prevCtot}Z` : ''}`;
+            return `<div class="audit-entry audit-type-${type} ${clickable}" data-flight-id="${e.flightId || ''}">
+                <span class="audit-dot"></span>
                 <span class="audit-time">${e.time || ''}</span>
                 <span class="audit-cs">${e.callsign || ''}</span>
-                <span class="audit-action">ATD ${e.newAtd || ''}Z</span>
-                ${e.user ? `<span class="audit-user">@${e.user}</span>` : ''}
+                <span class="audit-action">${actionText}</span>
+                ${typeLabel ? `<span class="audit-type-label">(${typeLabel})</span>` : ''}
                 ${diffsStr ? `<span class="audit-cascade">→ ${diffsStr}</span>` : ''}
             </div>`;
         }).join('');
@@ -57,12 +64,15 @@ export class AuditTimeline {
     }
 
     _exportCsv() {
-        const header = ['시각(UTC)', '콜사인', '신규ATD', '이전ATD', '사유', '변경자', '연쇄변경'];
+        const header = ['시각(UTC)', '이벤트유형', '콜사인', '이전값', '신규값', '사유', '연쇄변경'];
         const rows = this.entries.map(e => {
+            const type = e.eventType || (e.newAtd ? 'atd_set' : 'ctot_adjust');
+            const prevVal = type === 'atd_set' ? (e.prevAtd || '') : (e.prevCtot || '');
+            const newVal  = type === 'atd_set' ? (e.newAtd || '')  : (e.newCtot || '');
             const diffs = (e.diffs || [])
                 .map(d => `${d.callsign}:${d.prevCtot}->${d.newCtot}(${d.deltaMins > 0 ? '+' : ''}${d.deltaMins}m)`)
                 .join(' | ');
-            return [e.time || '', e.callsign || '', e.newAtd || '', e.prevAtd || '', e.reason || '', e.user || '', diffs];
+            return [e.time || '', type, e.callsign || '', prevVal, newVal, e.reason || '', diffs];
         });
         const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
         const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });

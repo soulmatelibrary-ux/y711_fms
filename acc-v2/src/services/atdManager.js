@@ -103,6 +103,16 @@ export async function setAtd(flightId, atdHHMM, reason = 'manual') {
     // 3. 서버 저장 — 실패 시 UI 롤백
     try {
         await apiPost('/api/v2/atd', { flightId, atd: atdHHMM, prevAtd, reason });
+        apiPost('/api/v2/change-log', {
+            event_type: 'atd_set',
+            flight_id: flightId,
+            callsign: flight.callsign,
+            dept: flight.dept,
+            prev_value: prevAtd,
+            new_value: atdHHMM,
+            cascade_diffs: JSON.stringify(diffs),
+            reason
+        }).catch(e => console.warn('change-log 저장 실패:', e.message));
     } catch (e) {
         console.warn('ATD 서버 저장 실패 — 롤백:', e.message);
         _undoStack.pop();
@@ -174,6 +184,17 @@ export async function adjustCtot(flightId, newCtotHHMM) {
     document.dispatchEvent(new CustomEvent('atd:updated', {
         detail: { flightId, diffs, conflicts: _state.conflicts, auditEntry }
     }));
+
+    apiPost('/api/v2/change-log', {
+        event_type: 'ctot_adjust',
+        flight_id: flightId,
+        callsign: flight.callsign,
+        dept: flight.dept,
+        prev_value: prevCtot,
+        new_value: newCtotHHMM,
+        cascade_diffs: JSON.stringify(diffs),
+        reason: 'manual_ctot_adjust'
+    }).catch(e => console.warn('change-log 저장 실패:', e.message));
 
     return { diffs, conflicts: _state.conflicts };
 }
@@ -247,4 +268,15 @@ export async function resolveConflictDelay(conflict, reason = 'conflict_resolve'
     document.dispatchEvent(new CustomEvent('atd:updated', {
         detail: { flightId: f2.id, diffs: auditEntry.diffs, conflicts: _state.conflicts, auditEntry }
     }));
+
+    apiPost('/api/v2/change-log', {
+        event_type: 'conflict_resolve',
+        flight_id: f2.id,
+        callsign: f2.callsign,
+        dept: f2.dept,
+        prev_value: prevCtot,
+        new_value: newCtot,
+        cascade_diffs: JSON.stringify(auditEntry.diffs),
+        reason
+    }).catch(e => console.warn('change-log 저장 실패:', e.message));
 }

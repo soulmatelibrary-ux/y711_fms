@@ -141,16 +141,25 @@ function authenticateUser(req, res, next) {
     const username = req.headers['x-username'];
 
     if (!userId || !username) {
-        return res.status(401).json({
-            success: false,
-            error: '인증 필요'
-        });
+        return res.status(401).json({ success: false, error: '인증 필요' });
     }
 
-    // 실제 프로덕션에서는 토큰 검증 필요
-    req.userId = parseInt(userId);
-    req.username = username;
-    next();
+    const id = parseInt(userId, 10);
+    if (!id || isNaN(id)) {
+        return res.status(401).json({ success: false, error: '유효하지 않은 사용자' });
+    }
+
+    db.get(
+        'SELECT id, username FROM users WHERE id = ? AND username = ?',
+        [id, username],
+        (err, user) => {
+            if (err) return res.status(500).json({ success: false, error: '서버 오류' });
+            if (!user) return res.status(401).json({ success: false, error: '인증 실패' });
+            req.userId = user.id;
+            req.username = user.username;
+            next();
+        }
+    );
 }
 
 // ============================================
@@ -199,10 +208,12 @@ app.post('/api/auth/login', (req, res) => {
 
 // 로그아웃
 app.post('/api/auth/logout', (req, res) => {
-    res.json({
-        success: true,
-        message: '로그아웃되었습니다'
-    });
+    res.json({ success: true, message: '로그아웃되었습니다' });
+});
+
+// 세션 유효성 확인 (클라이언트 시작 시 호출)
+app.get('/api/auth/me', authenticateUser, (req, res) => {
+    res.json({ success: true, user: { id: req.userId, username: req.username } });
 });
 
 // ============================================
@@ -381,6 +392,336 @@ app.delete('/api/flights/:id', authenticateUser, (req, res) => {
                 success: true,
                 message: '항공편이 삭제되었습니다'
             });
+        }
+    );
+});
+
+// ============================================================
+// V2 API — 설정 테이블 초기화 (서버 시작 시)
+// ============================================================
+function initV2Tables() {
+    db.serialize(() => {
+        db.run(`CREATE TABLE IF NOT EXISTS airport_settings (
+            icao TEXT PRIMARY KEY, name_ko TEXT, merge_point TEXT,
+            dep_interval INTEGER DEFAULT 4,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS segment_times (
+            from_icao TEXT, to_waypoint TEXT, duration_min INTEGER,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (from_icao, to_waypoint)
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS waypoint_chain (
+            from_wp TEXT, to_wp TEXT, duration_min INTEGER, seq INTEGER DEFAULT 0,
+            PRIMARY KEY (from_wp, to_wp)
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS conflict_zones (
+            waypoint TEXT PRIMARY KEY, name TEXT, separation_min INTEGER DEFAULT 3,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS atd_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, flight_id TEXT, prev_atd TEXT, new_atd TEXT,
+            changed_by TEXT, changed_at DATETIME DEFAULT CURRENT_TIMESTAMP, reason TEXT, source TEXT DEFAULT 'manual'
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS advisory_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, flight_id TEXT, callsign TEXT, dept_icao TEXT,
+            recommended_time TEXT, prev_time TEXT, issued_by TEXT,
+            issued_at DATETIME DEFAULT CURRENT_TIMESTAMP, channel TEXT DEFAULT 'hotline', reason TEXT, acknowledged_at DATETIME
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS change_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type    TEXT NOT NULL,
+            flight_id     TEXT,
+            callsign      TEXT,
+            dept          TEXT,
+            prev_value    TEXT,
+            new_value     TEXT,
+            cascade_diffs TEXT,
+            reason        TEXT,
+            occurred_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // 초기값 삽입 (INSERT OR IGNORE)
+        const airports = [['RKSS','김포','BULTI',4],['RKTU','청주','MEKIL',10],['RKJK','군산','MANGI',10],['RKJJ','광주','DALSU',10]];
+        airports.forEach(([icao,name,mp,di]) => {
+            db.run('INSERT OR IGNORE INTO airport_settings (icao,name_ko,merge_point,dep_interval) VALUES (?,?,?,?)',[icao,name,mp,di]);
+        });
+        const segs = [['RKSS','BULTI',8],['RKTU','MEKIL',7],['RKJK','MANGI',3],['RKJJ','DALSU',1]];
+        segs.forEach(([f,t,d]) => db.run('INSERT OR IGNORE INTO segment_times (from_icao,to_waypoint,duration_min) VALUES (?,?,?)',[f,t,d]));
+        const chain = [['BULTI','MEKIL',2,1],['MEKIL','GONAX',2,2],['GONAX','BEDES',2,3],['BEDES','ELPOS',3,4],
+                       ['ELPOS','MANGI',4,5],['MANGI','DALSU',2,6],['DALSU','NULDI',2,7],['NULDI','DOTOL',3,8],['DOTOL','RKPC',5,9]];
+        chain.forEach(([f,t,d,s]) => db.run('INSERT OR IGNORE INTO waypoint_chain (from_wp,to_wp,duration_min,seq) VALUES (?,?,?,?)',[f,t,d,s]));
+        const zones = [['MEKIL','MEKIL Convergence',3],['MANGI','MANGI Convergence',3],['DALSU','DALSU Convergence',3]];
+        zones.forEach(([w,n,s]) => db.run('INSERT OR IGNORE INTO conflict_zones (waypoint,name,separation_min) VALUES (?,?,?)',[w,n,s]));
+
+        console.log('✅ V2 설정 테이블 초기화 완료');
+    });
+}
+initV2Tables();
+
+// ============================================================
+// V2 API — 설정 조회/수정
+// ============================================================
+
+app.get('/api/v2/settings/airports', (req, res) => {
+    db.all('SELECT * FROM airport_settings ORDER BY icao', (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: rows });
+    });
+});
+
+app.put('/api/v2/settings/airports/:icao', (req, res) => {
+    const { icao } = req.params;
+    const { name_ko, merge_point, dep_interval } = req.body;
+    db.run('UPDATE airport_settings SET name_ko=?,merge_point=?,dep_interval=?,updated_at=CURRENT_TIMESTAMP WHERE icao=?',
+        [name_ko, merge_point, dep_interval, icao],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, changes: this.changes });
+        }
+    );
+});
+
+app.get('/api/v2/settings/segments', (req, res) => {
+    db.all('SELECT * FROM segment_times ORDER BY from_icao', (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: rows });
+    });
+});
+
+app.put('/api/v2/settings/segments', (req, res) => {
+    const { from_icao, to_waypoint, duration_min } = req.body;
+    db.run('INSERT OR REPLACE INTO segment_times (from_icao,to_waypoint,duration_min,updated_at) VALUES (?,?,?,CURRENT_TIMESTAMP)',
+        [from_icao, to_waypoint, duration_min],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true });
+        }
+    );
+});
+
+app.get('/api/v2/settings/waypoints', (req, res) => {
+    db.all('SELECT * FROM waypoint_chain ORDER BY seq', (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: rows });
+    });
+});
+
+app.put('/api/v2/settings/waypoints', (req, res) => {
+    const { from_wp, to_wp, duration_min } = req.body;
+    if (!from_wp || !to_wp || duration_min == null) {
+        return res.status(400).json({ success: false, error: 'from_wp, to_wp, duration_min 필수' });
+    }
+    db.run(
+        'UPDATE waypoint_chain SET duration_min=? WHERE from_wp=? AND to_wp=?',
+        [duration_min, from_wp, to_wp],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            if (this.changes === 0) return res.status(404).json({ success: false, error: '해당 구간 없음' });
+            res.json({ success: true });
+        }
+    );
+});
+
+app.get('/api/v2/settings/conflict-zones', (req, res) => {
+    db.all('SELECT * FROM conflict_zones', (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: rows });
+    });
+});
+
+app.put('/api/v2/settings/conflict-zones/:wp', (req, res) => {
+    const { wp } = req.params;
+    const { separation_min } = req.body;
+    db.run('UPDATE conflict_zones SET separation_min=?,updated_at=CURRENT_TIMESTAMP WHERE waypoint=?',
+        [separation_min, wp],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, changes: this.changes });
+        }
+    );
+});
+
+// ============================================================
+// V2 API — 항공편 (오늘 + 1시간 전 미출발편 포함)
+// ============================================================
+
+app.get('/api/v2/flights/today', authenticateUser, (req, res) => {
+    const now = new Date();
+
+    // ─────────────────────────────────────────────────────────
+    // KST 기준 운항일 (KST = UTC+9)
+    // KST 하루 = UTC 이전일 15:00 ~ 당일 14:59
+    //   · EOBT UTC ≥ 1500  → 전날 UTC 날짜에 속하지만 KST 당일 새벽 (21xx~23xx UTC)
+    //   · EOBT UTC <  1500  → 당일 UTC 날짜에 속하는 KST 낮/저녁 (0000~1459 UTC)
+    //
+    // day_of_week 는 KST 기준 요일 (1=Mon, 7=Sun)
+    // ─────────────────────────────────────────────────────────
+    const kstNow = new Date(now.getTime() + 9 * 3600 * 1000);
+    const kstDow = kstNow.getUTCDay() === 0 ? 7 : kstNow.getUTCDay();
+    const prevKstDow = kstDow === 1 ? 7 : kstDow - 1;
+    const todayStr  = kstNow.toISOString().slice(0, 10); // KST 오늘 날짜 (표시용)
+
+    // KST-aware 정렬:
+    //   EOBT UTC ≥ 1500 → 실제 KST 새벽 → 정렬 우선 (하루의 시작)
+    //   EOBT UTC <  1500 → KST 낮/저녁 → 뒤에 배치
+    //   정렬키: eobt_int >= 1500 ? eobt_int : eobt_int + 10000
+    const sql = `
+        SELECT id, callsign, dept, dest, cfl, eobt_utc AS eobt,
+               day_of_week, schedule_start_date, schedule_end_date
+        FROM flights
+        WHERE user_id = ?
+          AND dest = 'RKPC'
+          AND dept IN ('RKSS','RKTU','RKJK','RKJJ')
+          AND (
+              -- KST 당일 낮/저녁 항공편 (EOBT UTC 0000-1459)
+              (day_of_week = ? AND CAST(eobt_utc AS INTEGER) < 1500)
+              OR
+              -- KST 당일 새벽 항공편 (EOBT UTC 1500-2359, 전날 UTC = 전날 KST-1요일)
+              (day_of_week = ? AND CAST(eobt_utc AS INTEGER) >= 1500)
+          )
+        ORDER BY
+          CASE WHEN CAST(eobt_utc AS INTEGER) >= 1500
+               THEN CAST(eobt_utc AS INTEGER)
+               ELSE CAST(eobt_utc AS INTEGER) + 10000
+          END ASC
+        LIMIT 200
+    `;
+
+    db.all(sql, [req.userId, kstDow, prevKstDow], (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        if (!rows.length) return res.json({ success: true, data: [], date: todayStr, kstDow });
+
+        // atd_history: 오늘 KST 날짜(= UTC -9h ~ +15h) 범위
+        const flightIds = rows.map(r => r.id);
+        const placeholders = flightIds.map(() => '?').join(',');
+        const kstDayStart = new Date(kstNow.getTime());
+        kstDayStart.setUTCHours(0, 0, 0, 0);
+        const utcStartOfKstDay = new Date(kstDayStart.getTime() - 9 * 3600 * 1000).toISOString();
+        const utcEndOfKstDay   = new Date(kstDayStart.getTime() - 9 * 3600 * 1000 + 86400000 - 1).toISOString();
+
+        db.all(
+            `SELECT flight_id, new_atd FROM atd_history
+             WHERE flight_id IN (${placeholders})
+               AND changed_at >= ? AND changed_at <= ?
+             ORDER BY changed_at DESC`,
+            [...flightIds, utcStartOfKstDay, utcEndOfKstDay],
+            (err2, atdRows) => {
+                const atdMap = {};
+                (atdRows || []).forEach(r => {
+                    if (!atdMap[r.flight_id]) atdMap[r.flight_id] = r.new_atd;
+                });
+
+                const flights = rows.map(r => ({
+                    id: r.id,
+                    callsign: r.callsign,
+                    dept: r.dept,
+                    dest: r.dest || 'RKPC',
+                    cfl: r.cfl,
+                    eobt: r.eobt,
+                    ctot: r.eobt,   // 초기값 = EOBT, 클라이언트에서 recalcAll()로 재계산
+                    atd: atdMap[r.id] || null,
+                    status: atdMap[r.id] ? 'DEP' : 'SCH',
+                    day_of_week: r.day_of_week,
+                    schedule_start_date: r.schedule_start_date,
+                    schedule_end_date: r.schedule_end_date,
+                    routeWaypoints: []
+                }));
+
+                res.json({ success: true, data: flights, date: todayStr, kstDow, count: flights.length });
+            }
+        );
+    });
+});
+
+// ============================================================
+// V2 API — ATD 입력 저장
+// ============================================================
+
+app.post('/api/v2/atd', authenticateUser, (req, res) => {
+    const { flightId, atd, prevAtd, reason } = req.body;
+    if (!flightId || !atd) return res.status(400).json({ success: false, error: 'flightId, atd 필요' });
+
+    db.run(
+        'INSERT INTO atd_history (flight_id, prev_atd, new_atd, changed_by, reason) VALUES (?,?,?,?,?)',
+        [flightId, prevAtd || null, atd, req.username, reason || 'manual'],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, id: this.lastID });
+        }
+    );
+});
+
+// ============================================================
+// V2 API — Tower Advisory 저장
+// ============================================================
+
+// DEPRECATED 2026-05-10 — Tower Advisory removed in favor of Conflict Watchlist (client no longer calls this)
+app.post('/api/v2/advisory', authenticateUser, (req, res) => {
+    const { flightId, callsign, deptIcao, recommendedTime, prevTime, reason } = req.body;
+    db.run(
+        'INSERT INTO advisory_log (flight_id, callsign, dept_icao, recommended_time, prev_time, issued_by, reason) VALUES (?,?,?,?,?,?,?)',
+        [flightId, callsign, deptIcao, recommendedTime, prevTime || null, req.username, reason || ''],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, id: this.lastID });
+        }
+    );
+});
+
+// DEPRECATED 2026-05-10 — Tower Advisory removed in favor of Conflict Watchlist (client no longer calls this)
+app.get('/api/v2/advisory/pending', authenticateUser, (req, res) => {
+    db.all(
+        'SELECT * FROM advisory_log WHERE issued_by = ? ORDER BY issued_at DESC LIMIT 50',
+        [req.username],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
+});
+
+// ============================================================
+// V2 API — Audit 이력
+// ============================================================
+
+app.get('/api/v2/audit', authenticateUser, (req, res) => {
+    db.all(
+        'SELECT * FROM atd_history WHERE changed_by = ? ORDER BY changed_at DESC LIMIT 100',
+        [req.username],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
+});
+
+// ============================================================
+// V2 API — 통합 변경 이력 (change_log)
+// ============================================================
+
+app.post('/api/v2/change-log', (req, res) => {
+    const { event_type, flight_id, callsign, dept, prev_value, new_value, cascade_diffs, reason } = req.body;
+    if (!event_type) return res.status(400).json({ success: false, error: 'event_type 필요' });
+    db.run(
+        'INSERT INTO change_log (event_type, flight_id, callsign, dept, prev_value, new_value, cascade_diffs, reason) VALUES (?,?,?,?,?,?,?,?)',
+        [event_type, flight_id || null, callsign || null, dept || null,
+         prev_value || null, new_value || null, cascade_diffs || null, reason || null],
+        function(err) {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, id: this.lastID });
+        }
+    );
+});
+
+app.get('/api/v2/change-log', (req, res) => {
+    db.all(
+        `SELECT * FROM change_log
+         WHERE occurred_at >= datetime('now', 'start of day', '-9 hours')
+         ORDER BY occurred_at DESC LIMIT 200`,
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            res.json({ success: true, data: rows });
         }
     );
 });

@@ -23,9 +23,17 @@ import { debounce } from './src/utils/debounce.js';
 import * as XLSX from 'xlsx';
 
 // ============================================================
-// 로그인 체크 (빠른 경로: localStorage 없으면 즉시 리다이렉트)
+// 인증 기능 플래그 — false: 로그인 화면 생략, 헤더 인증 UI 숨김
+//                    true : 원래대로 로그인/로그아웃 활성화
 // ============================================================
-if (!localStorage.getItem('userId') || !localStorage.getItem('username')) {
+const AUTH_ENABLED = false;
+
+// WHAT-IF 기능 플래그 — false: 배지·기능 숨김 (미완성)
+//                        true : 헤더에 WHAT-IF 배지 표시 및 기능 활성화
+const WHATIF_ENABLED = false;
+
+// 로그인 체크 (빠른 경로: localStorage 없으면 즉시 리다이렉트)
+if (AUTH_ENABLED && (!localStorage.getItem('userId') || !localStorage.getItem('username'))) {
     window.location.href = '/login.html';
 }
 
@@ -51,6 +59,46 @@ let _conflictQuickCardEl = null;
 let _conflictQuickCardOutsideHandler = null;
 let _clockTimer = null;
 let _liveMapMode = 'geo';
+
+function _normalizeSecDelta(targetSec, baseSec) {
+    let d = targetSec - baseSec;
+    if (d < -43200) d += 86400;
+    if (d > 43200) d -= 86400;
+    return d;
+}
+
+function _getDefaultSetNowTarget() {
+    const now = nowUtcSec();
+    const candidates = (state.flights || [])
+        .filter(f => f.status !== 'DEP')
+        .map(f => {
+            const eobtSec = timeToSec(f.eobt);
+            return {
+                flight: f,
+                eobtSec,
+                diffSec: Number.isFinite(eobtSec) ? _normalizeSecDelta(eobtSec, now) : Infinity
+            };
+        })
+        .filter(x => Number.isFinite(x.eobtSec) && x.eobtSec >= 0);
+
+    if (!candidates.length) return null;
+
+    // 기본 기준: 현재시각 기준 EOBT 10분 전(= now-10m) 이후 편부터 선택
+    const fromTenMinBefore = candidates.filter(x => x.diffSec >= -10 * 60);
+    const pool = fromTenMinBefore.length ? fromTenMinBefore : candidates;
+    pool.sort((a, b) => a.diffSec - b.diffSec);
+
+    const picked = pool[0]?.flight;
+    if (!picked) return null;
+    return {
+        callsign: picked.callsign || '',
+        dept: picked.dept || '',
+        eobt: picked.eobt || null,
+        atd: null,
+        source: 'default'
+    };
+}
+
 function _getMiniMapAirportFlights(icao) {
     const now = nowUtcSec();
     const window60 = 60 * 60;
@@ -85,27 +133,47 @@ const ALT_WAYPOINT_POS = {
     RKPC:  1460,
 };
 
+function _serverRowToAuditEntry(row) {
+    const isAtd = row.event_type === 'atd_set';
+    const time = (row.occurred_at || '').slice(11, 16).replace(':', '');
+    return {
+        time,
+        flightId: row.flight_id,
+        callsign: row.callsign,
+        dept: row.dept,
+        prevAtd: isAtd ? row.prev_value : undefined,
+        newAtd: isAtd ? row.new_value : undefined,
+        prevCtot: !isAtd ? row.prev_value : undefined,
+        newCtot: !isAtd ? row.new_value : undefined,
+        reason: row.reason,
+        diffs: JSON.parse(row.cascade_diffs || '[]'),
+        eventType: row.event_type
+    };
+}
+
 // ============================================================
 // 초기화
 // ============================================================
 async function init() {
-    // 서버 세션 유효성 검증
-    try {
-        const meRes = await fetch('/api/auth/me', {
-            headers: {
-                'x-user-id': localStorage.getItem('userId') || '',
-                'x-username': localStorage.getItem('username') || ''
+    // 서버 세션 유효성 검증 (AUTH_ENABLED일 때만)
+    if (AUTH_ENABLED) {
+        try {
+            const meRes = await fetch('/api/auth/me', {
+                headers: {
+                    'x-user-id': localStorage.getItem('userId') || '',
+                    'x-username': localStorage.getItem('username') || ''
+                }
+            });
+            if (meRes.status === 401) {
+                localStorage.removeItem('userId');
+                localStorage.removeItem('username');
+                localStorage.removeItem('acc_v2_ui_prefs');
+                window.location.href = '/login.html';
+                return;
             }
-        });
-        if (meRes.status === 401) {
-            localStorage.removeItem('userId');
-            localStorage.removeItem('username');
-            localStorage.removeItem('acc_v2_ui_prefs');
-            window.location.href = '/login.html';
-            return;
+        } catch (_) {
+            // 네트워크 오류(오프라인)는 통과 — 이후 API 호출에서 처리됨
         }
-    } catch (_) {
-        // 네트워크 오류(오프라인)는 통과 — 이후 API 호출에서 처리됨
     }
 
     showLoading('설정 로드 중...');
@@ -134,6 +202,17 @@ async function init() {
         startClock();
         setupEventListeners();
 
+        // 당일 변경 이력 서버에서 복원
+        try {
+            const logRes = await apiGet('/api/v2/change-log');
+            if (logRes.data?.length) {
+                state.auditLog = logRes.data.map(_serverRowToAuditEntry);
+                audit.setEntries(state.auditLog);
+            }
+        } catch (_) {
+            // 이력 로드 실패는 비치명적 — 당일 이벤트부터 새로 기록
+        }
+
     } catch (err) {
         console.error('초기화 실패:', err);
         if (err.message === 'Unauthorized') return;
@@ -155,20 +234,16 @@ function renderApp() {
         <span class="h-clock" id="clock">--:--:--</span>
         <span class="h-badge badge-conflicts zero" id="badge-conflicts" title="클릭 시 Watchlist 첫 항목으로 포커스">충돌 0</span>
         <span class="h-badge badge-setnow" id="badge-setnow" title="가장 최근 SET NOW 기준편">SET NOW 미지정</span>
-        <span class="h-badge badge-whatif" id="badge-whatif" title="What-if 모드 토글">WHAT-IF</span>
+        ${WHATIF_ENABLED ? '<span class="h-badge badge-whatif" id="badge-whatif" title="What-if 모드 토글">WHAT-IF</span>' : ''}
         <span class="h-spacer"></span>
-        <span class="h-user" id="h-user-label"></span>
+        ${AUTH_ENABLED ? '<span class="h-user" id="h-user-label"></span>' : ''}
         <button class="btn-undo" id="btn-undo" title="되돌리기 (Ctrl+Z)" disabled>↶</button>
         <button class="btn-sim-toggle" id="btn-sim-toggle" title="시뮬레이션 모드">▶ 시뮬레이션</button>
         <button class="btn-bulk-delay" id="btn-bulk-delay" title="공항별 일괄 지연">일괄지연</button>
-        <button class="btn-excel" id="btn-import-excel" title="Excel 파일에서 항공기 불러오기">엑셀 임포트</button>
-        <button class="btn-excel" id="btn-export-excel" title="현재 항공기 목록 Excel 저장">항공기 익스포트</button>
-        <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none" />
-        <a class="btn-main-link" href="/" target="_blank" title="메인 시스템에서 Excel 업로드">↗ 스케줄</a>
         <button class="btn-audit-toggle" id="btn-audit-toggle" title="Audit Timeline">📋</button>
         <button class="btn-settings" id="btn-settings" title="시간 설정">⚙</button>
         <button class="btn-help" id="btn-help" title="도움말 (?)">?</button>
-        <span class="h-logout" id="btn-logout">로그아웃</span>
+        ${AUTH_ENABLED ? '<span class="h-logout" id="btn-logout">로그아웃</span>' : ''}
     </header>
 
     <div id="sim-bar">
@@ -221,9 +296,11 @@ function renderApp() {
         </div>
     </div>`;
 
-    // username textContent 주입 (XSS 방지)
-    const userLabel = document.getElementById('h-user-label');
-    if (userLabel) userLabel.textContent = localStorage.getItem('username') || 'ACC';
+    // username textContent 주입 (AUTH_ENABLED일 때만)
+    if (AUTH_ENABLED) {
+        const userLabel = document.getElementById('h-user-label');
+        if (userLabel) userLabel.textContent = localStorage.getItem('username') || 'ACC';
+    }
 
     // 컴포넌트 초기화
     const canvas = document.getElementById('ribbon-canvas');
@@ -397,7 +474,10 @@ function renderApp() {
         conflictWizard = new ConflictWizard();
     conflictWizard.setFlights(state.flights);
 
-    settingsModal = new SettingsModal();
+    settingsModal = new SettingsModal({
+        onExcelImport: handleExcelImport,
+        onExcelExport: handleExcelExport
+    });
 
     // Audit Timeline 팝업 모달 생성
     const auditModal = document.createElement('div');
@@ -1020,60 +1100,127 @@ function openHelpModal() {
             <button class="modal-close" id="help-modal-close">×</button>
         </div>
         <div class="help-tabs">
-            <button class="help-tab active" data-tab="flows">사용 흐름</button>
-            <button class="help-tab" data-tab="terms">약어 범례</button>
+            <button class="help-tab active" data-tab="start">시작하기</button>
+            <button class="help-tab" data-tab="features">주요 기능</button>
+            <button class="help-tab" data-tab="terms">약어·색상</button>
             <button class="help-tab" data-tab="keys">단축키</button>
         </div>
         <div class="help-content">
-            <div class="help-pane" id="help-pane-flows">
-                <h3>3대 사용자 흐름</h3>
-                <ol>
-                    <li><strong>ATD 발부</strong> — Departure Queue 카드 클릭 → Inspector에서 NOW / ±1m / HH:MM 입력 → 5초 Undo 가능 → 서버 저장</li>
-                    <li><strong>충돌 방지</strong> — Alert Bar 또는 헤더 "충돌 N" 클릭 → ConflictWizard 옵션 hover 미리보기 → 확정</li>
-                    <li><strong>What-if 시나리오</strong> — 헤더 "WHAT-IF" 또는 "일괄지연" → 가상 변경 테스트 → 취소</li>
+
+            <!-- ① 시작하기 -->
+            <div class="help-pane" id="help-pane-start">
+                <h3>화면 구성</h3>
+                <table class="shortcut-table">
+                    <tr><td><strong>Time Ribbon</strong></td><td>상단 좌측 — 시간축 위의 항공편 막대. 드래그하면 ATD가 즉시 변경됩니다.</td></tr>
+                    <tr><td><strong>Departure Queue</strong></td><td>하단 좌측 — 현재 시각 기준 NOW+60분 이내 출발 예정편 목록. 카드를 클릭하면 Inspector가 열립니다.</td></tr>
+                    <tr><td><strong>Conflict Watchlist</strong></td><td>하단 좌측 — 분리 위반이 감지된 항공편 쌍 목록. 실시간으로 갱신됩니다.</td></tr>
+                    <tr><td><strong>MiniMap</strong></td><td>우측 — 공항·웨이포인트·항공기 위치를 지도에 표시합니다. 항공기를 클릭하면 Inspector가 열립니다.</td></tr>
+                    <tr><td><strong>Inspector</strong></td><td>팝업 — 선택한 항공편의 상세 정보와 ATD 조정 입력창.</td></tr>
+                </table>
+
+                <h3 style="margin-top:14px">ATD 발부 — 3단계</h3>
+                <ol style="line-height:2">
+                    <li>Departure Queue에서 항공편 카드를 <strong>클릭</strong>하거나, Time Ribbon의 막대를 <strong>더블클릭</strong>합니다.</li>
+                    <li>Inspector에서 <strong>NOW</strong>(현재시각), <strong>±1분</strong> 버튼, 또는 <strong>HH:MM 직접 입력</strong> 후 Enter로 ATD를 확정합니다.</li>
+                    <li>확정 직후 <strong>실행 취소(Undo)</strong>가 가능합니다. 헤더의 ↶ 버튼 또는 Ctrl+Z를 누르세요.</li>
                 </ol>
-                <h3>입력 위치</h3>
-                <ul>
-                    <li><strong>Departure Queue</strong> — NOW±30분 항공편 목록 (검색/필터 지원)</li>
-                    <li><strong>Inspector</strong> — 선택 항공편 상세 및 ATD 조정 (HH:MM 입력 가능)</li>
-                    <li><strong>Time Ribbon</strong> — 항공편 바를 드래그하여 ATD 변경</li>
-                    <li><strong>MiniMap</strong> — 공항·웨이포인트 클릭으로 항공편 선택</li>
-                </ul>
+
+                <h3 style="margin-top:14px">충돌 해결 — 3단계</h3>
+                <ol style="line-height:2">
+                    <li>헤더 <strong>"충돌 N"</strong> 배지 또는 화면 상단 Alert Bar에 빨간 경고가 표시됩니다.</li>
+                    <li>배지·경고를 클릭하면 <strong>ConflictWizard</strong>가 열립니다. 옵션(A~D)에 마우스를 올리면 Time Ribbon에서 변경 결과를 미리 볼 수 있습니다.</li>
+                    <li>옵션을 클릭하거나 키보드 <kbd>A</kbd>~<kbd>D</kbd>를 눌러 확정합니다.</li>
+                </ol>
             </div>
+
+            <!-- ② 주요 기능 -->
+            <div class="help-pane hidden" id="help-pane-features">
+                <h3>헤더 배지</h3>
+                <table class="shortcut-table">
+                    <tr><td><strong>충돌 N</strong></td><td>현재 분리 위반 건수. 클릭하면 Conflict Watchlist 첫 항목으로 포커스됩니다.</td></tr>
+                    <tr><td><strong>SET NOW</strong></td><td>가장 최근에 NOW로 ATD를 발부한 기준편 표시.</td></tr>
+                    <tr><td><strong>WHAT-IF</strong></td><td>가상 시나리오 모드 토글. 활성화 시 변경 사항이 실제로 저장되지 않습니다.</td></tr>
+                </table>
+
+                <h3 style="margin-top:14px">헤더 버튼</h3>
+                <table class="shortcut-table">
+                    <tr><td><strong>↶ (Undo)</strong></td><td>직전 ATD 변경을 되돌립니다. 회색이면 되돌릴 내역이 없습니다.</td></tr>
+                    <tr><td><strong>▶ 시뮬레이션</strong></td><td>시간을 앞뒤로 재생해 항공기 흐름을 확인합니다. 속도 1×~30× 선택 가능.</td></tr>
+                    <tr><td><strong>일괄지연</strong></td><td>공항을 선택하고 분 단위를 입력하면 해당 공항 전체 편의 CTOT를 한 번에 지연시킵니다.</td></tr>
+                    <tr><td><strong>엑셀 임포트</strong></td><td>.xlsx 파일을 불러와 항공편을 화면에 로드합니다. (새로고침 시 초기화 — 영구 저장은 메인 시스템 사용)</td></tr>
+                    <tr><td><strong>항공기 익스포트</strong></td><td>현재 표시된 항공편 목록을 .xlsx 파일로 저장합니다.</td></tr>
+                    <tr><td><strong>↗ 스케줄</strong></td><td>메인 스케줄 시스템을 새 탭으로 엽니다.</td></tr>
+                    <tr><td><strong>📋 Audit</strong></td><td>ATD 변경 이력을 시간순으로 표시합니다. 변경 사유와 담당자를 확인할 수 있습니다.</td></tr>
+                    <tr><td><strong>⚙ 설정</strong></td><td>공항별 분리 간격 등 CTOT 계산 파라미터를 조정합니다.</td></tr>
+                </table>
+
+                <h3 style="margin-top:14px">MiniMap 뷰 전환</h3>
+                <table class="shortcut-table">
+                    <tr><td><strong>지도 뷰 (기본)</strong></td><td>공항·웨이포인트를 지리좌표 기반으로 표시합니다.</td></tr>
+                    <tr><td><strong>ALT 버튼</strong></td><td>고도 기반 뷰로 전환합니다. 항공기 간 수직 분리를 확인할 수 있습니다.</td></tr>
+                    <tr><td><strong>⛶ (팝업)</strong></td><td>Live Route Map을 별도 창으로 엽니다.</td></tr>
+                    <tr><td><strong>+/−/⟲</strong></td><td>지도 확대·축소·전체 보기. 마우스 휠로도 조작 가능합니다.</td></tr>
+                </table>
+            </div>
+
+            <!-- ③ 약어·색상 -->
             <div class="help-pane hidden" id="help-pane-terms">
                 <h3>약어</h3>
                 <table class="shortcut-table">
-                    <tr><td><strong>EOBT</strong></td><td>예상 이륙시각 (Estimated Off-Block Time)</td></tr>
-                    <tr><td><strong>CTOT</strong></td><td>산출 이륙시각 (Calculated Take-Off Time)</td></tr>
-                    <tr><td><strong>ATD</strong></td><td>실제 이륙시각 (Actual Take-off Departure)</td></tr>
-                    <tr><td><strong>CFL</strong></td><td>순항고도 (Cleared Flight Level)</td></tr>
-                    <tr><td><strong>SCH</strong></td><td>예정 (Scheduled)</td></tr>
-                    <tr><td><strong>DEP</strong></td><td>출발 완료 (Departed)</td></tr>
+                    <tr><td><strong>EOBT</strong></td><td>예상 출발 블록 시각 (Estimated Off-Block Time) — 항공사가 제출한 계획 시각</td></tr>
+                    <tr><td><strong>CTOT</strong></td><td>산출 이륙 시각 (Calculated Take-Off Time) — 분리 간격을 고려해 시스템이 계산한 시각</td></tr>
+                    <tr><td><strong>ATD</strong></td><td>실제 출발 시각 (Actual Take-off Departure) — 관제사가 발부한 실제 이륙 시각</td></tr>
+                    <tr><td><strong>CFL</strong></td><td>허가 비행고도 (Cleared Flight Level)</td></tr>
+                    <tr><td><strong>SCH</strong></td><td>예정 (Scheduled) — 아직 출발하지 않은 상태</td></tr>
+                    <tr><td><strong>DEP</strong></td><td>출발 완료 (Departed) — ATD가 발부되어 이미 출발한 편</td></tr>
                 </table>
-                <h3>공항 색상</h3>
+
+                <h3 style="margin-top:14px">공항 색상</h3>
                 <table class="shortcut-table">
-                    <tr><td><span style="color:#58a6ff">■</span> RKSS</td><td>김포 — 파랑</td></tr>
-                    <tr><td><span style="color:#bc8cff">■</span> RKTU</td><td>청주 — 보라</td></tr>
-                    <tr><td><span style="color:#39c5bb">■</span> RKJK</td><td>군산 — 청록</td></tr>
-                    <tr><td><span style="color:#d29922">■</span> RKJJ</td><td>광주 — 황금</td></tr>
+                    <tr><td><span style="color:#58a6ff;font-size:18px">■</span> <strong>RKSS</strong></td><td>김포국제공항 — 파랑</td></tr>
+                    <tr><td><span style="color:#bc8cff;font-size:18px">■</span> <strong>RKTU</strong></td><td>청주국제공항 — 보라</td></tr>
+                    <tr><td><span style="color:#39c5bb;font-size:18px">■</span> <strong>RKJK</strong></td><td>군산공항 — 청록</td></tr>
+                    <tr><td><span style="color:#d29922;font-size:18px">■</span> <strong>RKJJ</strong></td><td>광주공항 — 황금</td></tr>
+                    <tr><td><span style="color:#ff6b6b;font-size:18px">■</span> <strong>RKPC</strong></td><td>제주국제공항 — 빨강</td></tr>
                 </table>
             </div>
+
+            <!-- ④ 단축키 -->
             <div class="help-pane hidden" id="help-pane-keys">
-                <h3>단축키</h3>
+                <h3>전역</h3>
                 <table class="shortcut-table">
                     <tr><td><kbd>?</kbd></td><td>도움말 열기</td></tr>
-                    <tr><td><kbd>ESC</kbd></td><td>모달 닫기</td></tr>
-                    <tr><td><kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd></td><td>되돌리기 (Undo)</td></tr>
-                    <tr><td><kbd>Ctrl</kbd>+<kbd>0</kbd></td><td>Time Ribbon 현재시각으로 복귀</td></tr>
-                    <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Inspector — ATD ±1분</td></tr>
-                    <tr><td><kbd>Shift</kbd>+<kbd>↑/↓</kbd></td><td>Inspector — ATD ±5분</td></tr>
-                    <tr><td><kbd>Enter</kbd></td><td>Inspector — SET NOW</td></tr>
-                    <tr><td><kbd>A</kbd> / <kbd>B</kbd> / <kbd>C</kbd> / <kbd>D</kbd></td><td>ConflictWizard 옵션 선택</td></tr>
-                    <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td>Conflict Watchlist — 항목 이동</td></tr>
-                    <tr><td><kbd>Enter</kbd></td><td>Conflict Watchlist — Resolve 진입</td></tr>
-                    <tr><td><kbd>Space</kbd></td><td>Conflict Watchlist — Ack (인지)</td></tr>
+                    <tr><td><kbd>ESC</kbd></td><td>열린 모달 / Inspector / 시뮬레이션 닫기</td></tr>
+                    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd></td><td>ATD 변경 되돌리기 (Undo)</td></tr>
+                    <tr><td><kbd>Ctrl</kbd>+<kbd>0</kbd></td><td>Time Ribbon을 현재 시각으로 스크롤 복귀</td></tr>
+                </table>
+
+                <h3 style="margin-top:14px">Inspector (항공편 상세 팝업)</h3>
+                <table class="shortcut-table">
+                    <tr><td><kbd>Enter</kbd></td><td>SET NOW — 현재 시각으로 ATD 즉시 발부</td></tr>
+                    <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>ATD ±1분 조정</td></tr>
+                    <tr><td><kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd></td><td>ATD ±5분 조정</td></tr>
+                    <tr><td><kbd>Enter</kbd> <span style="color:#7a8a9a">(HH:MM 입력 후)</span></td><td>직접 입력한 시각으로 ATD 확정</td></tr>
+                    <tr><td><kbd>ESC</kbd></td><td>Inspector 닫기</td></tr>
+                </table>
+
+                <h3 style="margin-top:14px">ConflictWizard (충돌 해결)</h3>
+                <table class="shortcut-table">
+                    <tr><td><kbd>A</kbd> / <kbd>B</kbd></td><td>후행편 / 선행편 ATD 조정 옵션 선택</td></tr>
+                    <tr><td><kbd>C</kbd></td><td>항로·고도 변경 (시스템 외부 조정)</td></tr>
+                    <tr><td><kbd>D</kbd></td><td>수동 수용 (현재 상태 유지)</td></tr>
+                    <tr><td><kbd>Enter</kbd></td><td>A 옵션 즉시 선택</td></tr>
+                </table>
+
+                <h3 style="margin-top:14px">Conflict Watchlist</h3>
+                <table class="shortcut-table">
+                    <tr><td><kbd>J</kbd> / <kbd>↓</kbd></td><td>다음 항목으로 이동</td></tr>
+                    <tr><td><kbd>K</kbd> / <kbd>↑</kbd></td><td>이전 항목으로 이동</td></tr>
+                    <tr><td><kbd>Enter</kbd></td><td>선택 항목 ConflictWizard 진입</td></tr>
+                    <tr><td><kbd>Space</kbd></td><td>Ack — 인지 처리 (경고 억제)</td></tr>
                 </table>
             </div>
+
         </div>
     </div>`;
     document.body.appendChild(overlay);
@@ -1243,17 +1390,9 @@ function setupEventListeners() {
         if (e.target.id === 'btn-help') openHelpModal();
         if (e.target.id === 'btn-undo') handleUndo();
         if (e.target.id === 'btn-bulk-delay') openBulkDelayModal();
-        if (e.target.id === 'btn-import-excel') document.getElementById('excel-import-input')?.click();
-        if (e.target.id === 'btn-export-excel') handleExcelExport();
         if (e.target.id === 'btn-sim-toggle') openSimulation();
         if (e.target.id === 'sim-play') toggleSimPlay();
         if (e.target.id === 'sim-close') closeSimulation();
-    });
-
-    document.getElementById('excel-import-input')?.addEventListener('change', async (e) => {
-        const file = e.target.files?.[0];
-        await handleExcelImport(file);
-        e.target.value = '';
     });
 
     document.addEventListener('keydown', (e) => {
@@ -1738,13 +1877,18 @@ function updateBadges() {
 
     const bs = document.getElementById('badge-setnow');
     if (bs) {
-        const t = state.setNowTarget;
+        const t = state.setNowTarget || _getDefaultSetNowTarget();
         if (!t?.callsign) {
             bs.textContent = 'SET NOW 미지정';
             return;
         }
-        const timeTxt = t.atd ? `${String(t.atd).slice(0, 2)}:${String(t.atd).slice(2)}Z` : '--:--Z';
-        bs.textContent = `SET NOW ${t.callsign} · ${t.dept} · ${timeTxt}`;
+        if (t.atd) {
+            const timeTxt = `${String(t.atd).slice(0, 2)}:${String(t.atd).slice(2)}Z`;
+            bs.textContent = `SET NOW ${t.callsign} · ${t.dept} · ${timeTxt}`;
+            return;
+        }
+        const eobtTxt = t.eobt ? `${String(t.eobt).slice(0, 2)}:${String(t.eobt).slice(2)}Z` : '--:--Z';
+        bs.textContent = `SET NOW 기본 ${t.callsign} · ${t.dept} · EOBT ${eobtTxt}`;
     }
 }
 
