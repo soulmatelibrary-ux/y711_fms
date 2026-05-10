@@ -1,0 +1,21 @@
+{
+  "name": "acc-atd-v2",
+  "version": "2.0.0",
+  "description": "ACC ATD 관리 시스템 v2 - 시간축 기반 출발 분리간격 관리",
+  "main": "main.js",
+  "scripts": {
+    "dev": "vite --port 7301",
+    "build": "vite build",
+    "preview": "vite preview --port 7301",
+    "migrate": "node scripts/migrate-settings.js"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
