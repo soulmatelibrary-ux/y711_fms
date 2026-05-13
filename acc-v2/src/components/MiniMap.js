@@ -2,7 +2,10 @@
  * MiniMap — SVG 지리 뷰 (줌/패닝 지원)
  * 노드 좌표/경로 설정: src/config/miniMapGeo.js
  */
-import { MAP_W as W, MAP_H as H, AIRPORT_COLOR, AIRPORT_BG, GEO, ROUTES, ROUTE_MAP } from '../config/miniMapGeo.js';
+import {
+    MAP_W as W, AIRPORT_COLOR, AIRPORT_BG, GEO, ROUTES, ROUTE_MAP,
+    buildGeo, PX_PER_MIN, TOP_Y, ROUTE_TOTAL_MIN,
+} from '../config/miniMapGeo.js';
 import { secToTime, formatDisplay, escapeHtml } from '../utils/timeUtils.js';
 
 const ZOOM_LEVELS = [1, 1.5, 2, 3, 4];
@@ -19,11 +22,12 @@ export class MiniMap {
     } = {}) {
         this.container = container;
         this.selectedId = null;
-        this._selectedAirport = null; // 항공편 없어도 경로 하이라이트용
+        this._selectedAirport = null;
         this.flights = [];
         this.conflicts = [];
         this.onFlightSelect = onFlightSelect || (() => {});
-        this._simDots = [];
+        this._simDots    = [];
+        this._rawSimDots = []; // simulationBridge 원본(ppm=20 고정) — 이중 스케일링 방지
         this._zoomInId    = zoomInId;
         this._zoomOutId   = zoomOutId;
         this._zoomResetId = zoomResetId;
@@ -31,16 +35,48 @@ export class MiniMap {
         this._altitudeToggleId = altitudeToggleId;
         this._getAirportFlightsFn = getAirportFlights;
 
+        // 현재 px/분 스케일 (fitHeight 로 동적 조정)
+        this._pxPerMin = PX_PER_MIN;
+        this._geo = GEO; // buildGeo(this._pxPerMin)
+
         // 줌/패닝 상태
-        this._zoomIdx = 0;       // ZOOM_LEVELS 인덱스
-        this._panX = W / 2;     // 뷰 중심 x
-        this._panY = H / 2;     // 뷰 중심 y
+        this._zoomIdx = 0;
+        this._panX = W / 2;
+        this._panY = this._mapH() / 2;
         this._panning = false;
         this._panStart = null;
         this._altitudeView = false;
 
         this._render();
         this._attachZoomHandlers();
+
+        // 컨테이너 크기 변화 감지 → 자동 높이 맞춤
+        if (typeof ResizeObserver !== 'undefined') {
+            this._resizeObserver = new ResizeObserver(() => this.fitHeight());
+            this._resizeObserver.observe(this.container);
+        }
+    }
+
+    /** 현재 스케일 기준 맵 총 높이 */
+    _mapH() {
+        return TOP_Y + ROUTE_TOTAL_MIN * this._pxPerMin + 60; // 하단 여백 60
+    }
+
+    /**
+     * 컨테이너 높이에 맞게 px/분 스케일을 조정하고 재렌더링.
+     * minPxPerMin / maxPxPerMin 범위 내에서만 조정.
+     */
+    fitHeight(minPxPerMin = 16, maxPxPerMin = 34) {
+        const ch = this.container.clientHeight;
+        if (ch < 100) return;
+        const ppm = Math.max(minPxPerMin, Math.min(maxPxPerMin,
+            Math.round((ch - TOP_Y - 60) / ROUTE_TOTAL_MIN)
+        ));
+        if (ppm === this._pxPerMin) return;
+        this._pxPerMin = ppm;
+        this._geo = buildGeo(ppm);
+        this._panY = this._mapH() / 2;
+        this._render();
     }
 
     setFlights(flights) { this.flights = flights; this._render(); }
@@ -65,7 +101,7 @@ export class MiniMap {
     zoomOut() {
         if (this._zoomIdx > 0) {
             this._zoomIdx--;
-            if (this._zoomIdx === 0) { this._panX = W / 2; this._panY = H / 2; }
+            if (this._zoomIdx === 0) { this._panX = W / 2; this._panY = this._mapH() / 2; }
             this._clampPan();
             this._render();
             this._updateZoomLabel();
@@ -75,7 +111,7 @@ export class MiniMap {
     resetZoom() {
         this._zoomIdx = 0;
         this._panX = W / 2;
-        this._panY = H / 2;
+        this._panY = this._mapH() / 2;
         this._render();
         this._updateZoomLabel();
     }
@@ -83,6 +119,7 @@ export class MiniMap {
     _zoom() { return ZOOM_LEVELS[this._zoomIdx]; }
 
     _getViewBox() {
+        const H = this._mapH();
         const z = this._zoom();
         const vw = W / z;
         const vh = H / z;
@@ -90,6 +127,7 @@ export class MiniMap {
     }
 
     _clampPan() {
+        const H = this._mapH();
         const z = this._zoom();
         const hw = W / z / 2;
         const hh = H / z / 2;
@@ -127,7 +165,13 @@ export class MiniMap {
     }
 
     setSimPositions(dots) {
-        this._simDots = dots || [];
+        // simulationBridge 원본(ppm=20 고정)을 보관 — _render() 재호출 시 이중 스케일링 방지
+        this._rawSimDots = dots || [];
+        // 현재 _pxPerMin 스케일로 y 변환
+        const scale = this._pxPerMin / PX_PER_MIN;
+        this._simDots = this._rawSimDots.map(d =>
+            scale === 1 ? d : { ...d, y: TOP_Y + (d.y - TOP_Y) * scale }
+        );
         const svg = this.container.querySelector('svg');
         if (!svg) return;
         let layer = svg.querySelector('.mm-sim-layer');
@@ -136,7 +180,12 @@ export class MiniMap {
             layer.classList.add('mm-sim-layer');
             svg.appendChild(layer);
         }
-        layer.innerHTML = this._simDots.map(d => {
+
+        // 수직 분리선 (항공기 아래 레이어에 먼저 그림)
+        const sepSvg = !this._altitudeView ? this._buildSimSepSvg() : '';
+
+        // 항공기 dot + 콜사인
+        const dotSvg = this._simDots.map(d => {
             const x = this._altitudeView ? this._altitudeToX(d.altitudeFt) : d.x;
             const fl = Math.round((d.altitudeFt || 0) / 100);
             return `
@@ -148,10 +197,13 @@ export class MiniMap {
                 fill="${d.color}" font-size="8" font-family="monospace">${escapeHtml(d.callsign)}</text>
         `;
         }).join('');
+
+        layer.innerHTML = sepSvg + dotSvg;
     }
 
     clearSimPositions() {
-        this._simDots = [];
+        this._simDots    = [];
+        this._rawSimDots = [];
         const layer = this.container.querySelector('.mm-sim-layer');
         if (layer) layer.innerHTML = '';
     }
@@ -160,13 +212,15 @@ export class MiniMap {
         const activeApt = this._getActiveAirport();
         const nodeSz = this._zoom() >= 2 ? 1.5 : 1; // 줌 시 노드 크기 비율
 
+        const H = this._mapH();
+        const geo = this._geo;
         const svgContent = `<svg viewBox="${this._getViewBox()}" xmlns="http://www.w3.org/2000/svg"
             style="width:100%;height:100%;cursor:default;display:block">
             <rect x="0" y="0" width="${W}" height="${H}" fill="#0d1117"/>
             ${this._altitudeView ? this._drawAltitudeOverlay() : ''}
 
             ${ROUTES.map(([a, b]) => {
-                const p1 = GEO[a], p2 = GEO[b];
+                const p1 = geo[a], p2 = geo[b];
                 const isActive = this._isRouteActive(a, b);
                 const hasConflict = this._routeHasConflict(b);
                 const isBultiMekilSection =
@@ -183,7 +237,7 @@ export class MiniMap {
                     stroke="${color}" stroke-width="${w}" stroke-dasharray="${isActive ? '' : '4,4'}"/>`;
             }).join('')}
 
-            ${Object.entries(GEO).map(([id, p]) => {
+            ${Object.entries(geo).map(([id, p]) => {
                 const isConflict = this._isConflict(id);
                 if (p.type === 'airport') {
                     const ac = AIRPORT_COLOR[id] || '#4fc3f7';
@@ -250,11 +304,12 @@ export class MiniMap {
         this._attachClickHandlers();
         this._attachWheelAndPan();
         this._updateAltitudeButton();
-        // 시뮬레이션 레이어 복원: innerHTML 교체 후 sim 점이 사라지지 않도록
-        if (this._simDots.length) this.setSimPositions(this._simDots);
+        // 시뮬레이션 레이어 복원: innerHTML 교체 후 sim 점이 사라지지 않도록 (원본으로 재스케일)
+        if (this._rawSimDots.length) this.setSimPositions(this._rawSimDots);
     }
 
     _drawAltitudeOverlay() {
+        const H = this._mapH();
         const lanes = [0, 100, 200, 300, 350];
         const laneLines = lanes.map(fl => {
             const x = this._altitudeToX(fl * 100);
@@ -338,7 +393,7 @@ export class MiniMap {
 
             if (this._zoomIdx === 0) {
                 this._panX = W / 2;
-                this._panY = H / 2;
+                this._panY = this._mapH() / 2;
             } else {
                 // 줌 후 커서 위치가 같은 지점을 가리키도록 패닝 조정
                 const nz = this._zoom();
@@ -445,7 +500,7 @@ export class MiniMap {
         const labels = [];
 
         // 출발 공항에 CTOT/ATD 표시
-        const deptGeo = GEO[f.dept];
+        const deptGeo = this._geo[f.dept];
         if (deptGeo) {
             const t = f.atd || f.ctot;
             const display0 = formatDisplay(t);
@@ -462,7 +517,7 @@ export class MiniMap {
 
         // 각 웨이포인트 통과 시각 표시
         for (const wp of wps) {
-            const geo = GEO[wp.name];
+            const geo = this._geo[wp.name];
             if (!geo) continue;
             const display = formatDisplay(secToTime(wp.timeSec));
 
@@ -483,13 +538,93 @@ export class MiniMap {
         return labels.join('');
     }
 
+    /** 시뮬레이션 항공기 간 수직 분리선 — 청주 오른쪽 고정 컬럼(x=300)
+     *  선 길이 = diffMin * pxPerMin (레이블과 항상 일치)
+     *  선 중심 = 두 항공기 y 중점 (동적 이동) */
+    _buildSimSepSvg() {
+        if (this._simDots.length < 2) return '';
+        const SEP_X = 300;
+        const sorted = [...this._simDots].sort((a, b) => a.y - b.y);
+        const out = [];
+
+        const SPINE_X = 152;
+        // MANGI 이후에는 모든 출발지 경로가 동일 속도(20px/min) → 교차 출발지 비교 허용
+        const mangiY = this._geo.MANGI.y;
+
+        for (let i = 1; i < sorted.length; i++) {
+            const above = sorted[i - 1];
+            const below = sorted[i];
+            if (Math.abs(above.x - SPINE_X) > 22 || Math.abs(below.x - SPINE_X) > 22) continue;
+            if (below.y - above.y > 20 * this._pxPerMin) continue;
+
+            // 다른 출발지 쌍은 MANGI 이후만 비교 (JNKR~MANGI 구간은 출발지별 속도 상이)
+            const fA = this.flights.find(f => f.callsign === above.callsign);
+            const fB = this.flights.find(f => f.callsign === below.callsign);
+            if (!fA || !fB) continue;
+            if (fA.dept !== fB.dept && above.y < mangiY) continue;
+
+            // 교차 출발지 쌍은 MANGI 이후 구간에서만 비교하므로, MANGI부터 탐색
+            const crossOrigin = fA.dept !== fB.dept;
+            const timeSep = this._getTimeSepBetween(
+                above.callsign, below.callsign, crossOrigin ? 'MANGI' : null
+            );
+            if (timeSep === null || timeSep > 3600) continue;
+
+            const diffMin = Math.round(timeSep / 60);
+            const isConflict = timeSep < 5 * 60;
+            const isWarn     = timeSep < 8 * 60;
+            const color = isConflict ? '#ff3b30' : (isWarn ? '#ff9500' : '#4caf50');
+
+            // 선 끝점 = 실제 항공기 y 위치 (GEO가 시간 비례이므로 선 길이 ≈ diffMin * ppm)
+            const topY = above.y + 5;
+            const botY = below.y - 5;
+            if (botY - topY < 4) continue;
+            const midY = (above.y + below.y) / 2;
+
+            out.push(`<g opacity="0.88">
+                <line x1="${SEP_X}" y1="${topY.toFixed(1)}" x2="${SEP_X}" y2="${botY.toFixed(1)}"
+                    stroke="${color}" stroke-width="1" stroke-dasharray="3,3"/>
+                <line x1="${SEP_X - 5}" y1="${topY.toFixed(1)}" x2="${SEP_X + 5}" y2="${topY.toFixed(1)}"
+                    stroke="${color}" stroke-width="1.5"/>
+                <line x1="${SEP_X - 5}" y1="${botY.toFixed(1)}" x2="${SEP_X + 5}" y2="${botY.toFixed(1)}"
+                    stroke="${color}" stroke-width="1.5"/>
+                <rect x="${SEP_X + 7}" y="${(midY - 8).toFixed(1)}" width="22" height="13"
+                    rx="2" fill="rgba(13,17,23,0.88)"/>
+                <text x="${SEP_X + 18}" y="${(midY + 3).toFixed(1)}" text-anchor="middle"
+                    fill="${color}" font-size="9" font-family="monospace" font-weight="bold">${diffMin}분</text>
+            </g>`);
+        }
+        return out.join('');
+    }
+
+    // startFrom: 이 웨이포인트 이후부터 비교 (교차 출발지 쌍이 MANGI 이후에 있을 때 사용)
+    _getTimeSepBetween(callsignA, callsignB, startFrom = null) {
+        const fA = this.flights.find(f => f.callsign === callsignA);
+        const fB = this.flights.find(f => f.callsign === callsignB);
+        if (!fA || !fB) return null;
+        const wpsA = fA.routeWaypoints || [];
+        const wpsB = fB.routeWaypoints || [];
+        const CONV = ['MEKIL', 'JNKR', 'MANGI', 'DALSU', 'RKPC'];
+        const startIdx = startFrom ? CONV.indexOf(startFrom) : 0;
+        for (let i = Math.max(0, startIdx); i < CONV.length; i++) {
+            const conv = CONV[i];
+            const wA = wpsA.find(w => w.name === conv);
+            const wB = wpsB.find(w => w.name === conv);
+            if (wA && wB) {
+                let d = Math.abs(wA.timeSec - wB.timeSec);
+                if (d > 43200) d = 86400 - d;
+                return d;
+            }
+        }
+        return null;
+    }
+
     _drawSelectedRoute() {
         const apt = this._getActiveAirport();
         if (!apt) return '';
         const ac = AIRPORT_COLOR[apt] || '#4fc3f7';
-        // 항공편이 있으면 콜사인도 표시
         const f = this.selectedId ? this.flights.find(fl => fl.id === this.selectedId) : null;
         const label = f ? `${escapeHtml(f.callsign)} ${escapeHtml(apt)}→RKPC` : `${escapeHtml(apt)}→RKPC`;
-        return `<text x="10" y="${H - 10}" fill="${ac}" font-size="10" font-family="monospace" font-weight="bold">${label}</text>`;
+        return `<text x="10" y="${this._mapH() - 10}" fill="${ac}" font-size="10" font-family="monospace" font-weight="bold">${label}</text>`;
     }
 }

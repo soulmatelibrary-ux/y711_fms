@@ -10,6 +10,7 @@ const SECTION_H = 28;
 const LABEL_W = 88;
 const PX_PER_MIN_DEFAULT = 8;
 const NOW_RATIO = 0.38; // NOW 라인 위치 (화면 왼쪽에서 38%)
+const MAX_VIEW_OFFSET_SEC = 24 * 3600;
 
 const SECTIONS = [
     { label: 'DEPARTURE', lanes: ['RKSS', 'RKTU', 'RKJK', 'RKJJ'] },
@@ -52,7 +53,7 @@ const LANE_META = {
 const AIRPORT_CONV = { RKSS: 'MEKIL', RKTU: 'MEKIL', RKJK: 'MANGI', RKJJ: 'DALSU' };
 
 export class TimeRibbon {
-    constructor(canvas, { onFlightSelect, onFlightDblClick, onAtdDrop, onConflictClick, onUndoRequested } = {}) {
+    constructor(canvas, { onFlightSelect, onFlightDblClick, onAtdDrop, onConflictClick, onUndoRequested, onViewChange } = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.pxPerMin = PX_PER_MIN_DEFAULT;
@@ -66,6 +67,7 @@ export class TimeRibbon {
         this.onAtdDrop = onAtdDrop || (() => {});
         this.onConflictClick = onConflictClick || (() => {});
         this.onUndoRequested = onUndoRequested || (() => {});
+        this.onViewChange = onViewChange || (() => {});
 
         // 시뮬레이션 시각 (null = 실시간)
         this._simTimeSec = null;
@@ -114,9 +116,20 @@ export class TimeRibbon {
         this.whatifFlights = whatifFlights;
     }
     setZoom(pxPerMin) { this.pxPerMin = Math.max(2, Math.min(30, pxPerMin)); }
-    resetViewOffset() { this._viewOffsetSec = 0; }
+    resetViewOffset() { this.setViewOffsetSec(0); }
+    getViewOffsetSec() { return this._viewOffsetSec; }
+    setViewOffsetSec(sec) {
+        const next = this._clampViewOffsetSec(sec);
+        if (next === this._viewOffsetSec) return;
+        this._viewOffsetSec = next;
+        this.onViewChange(this._viewOffsetSec);
+    }
 
     _nowSec() { return (this._simTimeSec ?? nowUtcSec()) + this._viewOffsetSec; }
+
+    _clampViewOffsetSec(sec) {
+        return Math.max(-MAX_VIEW_OFFSET_SEC, Math.min(MAX_VIEW_OFFSET_SEC, Math.round(sec || 0)));
+    }
 
     // 시간(초) → 캔버스 X
     _tx(timeSec) {
@@ -729,7 +742,7 @@ export class TimeRibbon {
                 const mx = e.clientX - rect.left;
                 const dxPx = mx - this._pan.startX;
                 const dxSec = Math.round((dxPx / this.pxPerMin) * 60);
-                this._viewOffsetSec = this._pan.startOffsetSec - dxSec;
+                this.setViewOffsetSec(this._pan.startOffsetSec - dxSec);
                 if (Math.abs(dxPx) > 2) this._pan.moved = true;
                 canvas.style.cursor = 'grabbing';
                 return;

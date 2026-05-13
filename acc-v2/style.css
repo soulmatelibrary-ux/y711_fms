@@ -162,6 +162,22 @@ html, body {
 #ribbon-canvas {
     display: block;
 }
+#ribbon-nav {
+    flex: 0 0 18px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px 2px 88px;
+    background: #0c1320;
+    border-top: 1px solid #111b2a;
+    border-bottom: 1px solid var(--border);
+}
+#ribbon-scrollbar {
+    width: 100%;
+    height: 10px;
+    margin: 0;
+    accent-color: #4f78a8;
+    cursor: ew-resize;
+}
 
 /* 수평 스플리터 (left-col 내부) */
 #splitter {
@@ -1345,6 +1361,19 @@ body.whatif-mode #bottom-panel {
 }
 .btn-undo:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .btn-undo:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.btn-reset-state {
+    background: none;
+    border: 1px solid #ff6b6b;
+    color: #ff6b6b;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 13px;
+    cursor: pointer;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.btn-reset-state:hover { background: rgba(255,107,107,0.12); border-color: #ff4444; color: #ff4444; }
 
 /* =========================================
    토스트

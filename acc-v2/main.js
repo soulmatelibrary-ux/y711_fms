@@ -238,6 +238,7 @@ function renderApp() {
         <span class="h-spacer"></span>
         ${AUTH_ENABLED ? '<span class="h-user" id="h-user-label"></span>' : ''}
         <button class="btn-undo" id="btn-undo" title="되돌리기 (Ctrl+Z)" disabled>↶</button>
+        <button class="btn-reset-state" id="btn-reset-state" title="시뮬레이션 및 SET NOW 초기화">↺ 초기화</button>
         <button class="btn-sim-toggle" id="btn-sim-toggle" title="시뮬레이션 모드">▶ 시뮬레이션</button>
         <button class="btn-bulk-delay" id="btn-bulk-delay" title="공항별 일괄 지연">일괄지연</button>
         <button class="btn-audit-toggle" id="btn-audit-toggle" title="Audit Timeline">📋</button>
@@ -266,6 +267,9 @@ function renderApp() {
         <div id="left-col">
             <div id="ribbon-wrap">
                 <canvas id="ribbon-canvas"></canvas>
+            </div>
+            <div id="ribbon-nav">
+                <input type="range" id="ribbon-scrollbar" min="-86400" max="86400" step="60" value="0" aria-label="타임리본 좌우 스크롤">
             </div>
             <div id="splitter"></div>
             <div id="bottom-panel">
@@ -313,10 +317,21 @@ function renderApp() {
         onFlightDblClick: onFlightDblClick,
         onAtdDrop: onAtdDrop,
         onConflictClick: onConflictClick,
-        onUndoRequested: () => handleUndo()
+        onUndoRequested: () => handleUndo(),
+        onViewChange: (offsetSec) => {
+            const slider = document.getElementById('ribbon-scrollbar');
+            if (slider) slider.value = String(offsetSec);
+        }
     });
     ribbon.setFlights(state.flights);
     ribbon.setConflicts(state.conflicts);
+    const ribbonScrollbar = document.getElementById('ribbon-scrollbar');
+    if (ribbonScrollbar) {
+        ribbonScrollbar.value = String(ribbon.getViewOffsetSec());
+        ribbonScrollbar.addEventListener('input', (e) => {
+            ribbon.setViewOffsetSec(parseInt(e.target.value, 10) || 0);
+        });
+    }
     // 렌더 직후 캔버스 높이를 리본 고유 높이로 고정해 하단 공백/깜빡임을 방지
     ribbon.resize();
 
@@ -651,9 +666,13 @@ function _computeAltMapAircraftPos(f, sec) {
     const dep = ALT_AIRPORT_POS[f.dept];
     if (!dep) return null;
 
+    // routeWaypoints.timeSec은 ctotEngine이 toAbsSec 처리하여 86400+가 될 수 있음.
+    // simTimeSec는 당일 UTC 초(0-86399)이므로, 같은 도메인으로 정규화.
+    const toRawSec = t => (t >= 86400 ? t - 86400 : t);
+
     const wp = (f.routeWaypoints || [])
         .filter(w => Number.isFinite(w.timeSec) && ALT_WAYPOINT_POS[w.name] !== undefined)
-        .map(w => ({ name: w.name, t: w.timeSec, x: ALT_WAYPOINT_POS[w.name] }));
+        .map(w => ({ name: w.name, t: toRawSec(w.timeSec), x: ALT_WAYPOINT_POS[w.name] }));
 
     if (!wp.length) return null;
 
@@ -675,9 +694,14 @@ function _computeAltMapAircraftPos(f, sec) {
     }
 
     const fl = parseInt(String(f.cfl || '').replace(/[^0-9]/g, ''), 10) || 250;
-    const climb = Math.max(0, Math.min(1, (sec - depSec) / (10 * 60)));
+    const cruiseY = _flToY(fl);
     const groundY = dep.y;
-    const cruiseY = _flToY(fl);  // CFL에 맞는 y좌표
+    // 출발 → 첫 번째 웨이포인트 구간에서 순항고도까지 상승, 이후 순항
+    const firstWpSec = wp[0].t;
+    const climbDuration = firstWpSec - depSec;
+    const climb = climbDuration > 0
+        ? Math.max(0, Math.min(1, (sec - depSec) / climbDuration))
+        : 1;
     const y = groundY - (groundY - cruiseY) * climb;
 
     return { x, y, fl };
@@ -725,32 +749,32 @@ function _buildAltSepLines(visible, sec) {
 
         const isConflict = severity === 'critical';
         const isWarning  = severity === 'warning';
-        const color = isConflict ? '#ff3b30' : (isWarning ? '#ff9500' : 'rgba(130,200,255,0.85)');
+        const isUrgent   = !isConflict && !isWarning && diffMin <= 3;
+        const color      = isConflict ? '#ff4444' : (isWarning ? '#ffaa00' : isUrgent ? '#ff2d55' : '#ff8c00');
+        const lineColor  = isConflict ? '#ff4444' : (isWarning ? '#ffaa00' : isUrgent ? '#ff2d55' : '#ff8c00');
 
         // 분리선 y: 두 항공기 중 위쪽(y 작은) 것보다 20px 위
-        const lineY  = Math.min(pA.y, pB.y) - 20;
-        const midX   = (pA.x + pB.x) / 2;
-        const label  = diffMin > 0
-            ? `${isConflict ? '⚠ ' : ''}${diffMin}분 ${String(diffSecRem).padStart(2, '0')}초`
-            : `${isConflict ? '⚠ ' : ''}${diffSecRem}초`;
-        const lblW   = label.length * 5.6 + 10;
+        const lineY = Math.min(pA.y, pB.y) - 20;
+        const midX  = (pA.x + pB.x) / 2;
+        const label = `${isConflict ? '⚠ ' : ''}${diffMin}분`;
+        const lblW  = label.length * 7 + 12;
 
         lines.push(`
             <line x1="${pA.x.toFixed(1)}" y1="${lineY.toFixed(1)}"
                   x2="${pB.x.toFixed(1)}" y2="${lineY.toFixed(1)}"
-                  stroke="${color}" stroke-width="1.2" stroke-dasharray="5,4" opacity="0.88"/>
-            <line x1="${pA.x.toFixed(1)}" y1="${(lineY-5).toFixed(1)}"
-                  x2="${pA.x.toFixed(1)}" y2="${(lineY+5).toFixed(1)}"
-                  stroke="${color}" stroke-width="1.2" opacity="0.88"/>
-            <line x1="${pB.x.toFixed(1)}" y1="${(lineY-5).toFixed(1)}"
-                  x2="${pB.x.toFixed(1)}" y2="${(lineY+5).toFixed(1)}"
-                  stroke="${color}" stroke-width="1.2" opacity="0.88"/>
-            <rect x="${(midX - lblW/2).toFixed(1)}" y="${(lineY-15).toFixed(1)}"
-                  width="${lblW.toFixed(1)}" height="12" rx="3"
-                  fill="rgba(13,17,23,0.72)"/>
-            <text x="${midX.toFixed(1)}" y="${(lineY-6).toFixed(1)}"
+                  stroke="${lineColor}" stroke-width="1.8" stroke-dasharray="6,3" opacity="1"/>
+            <line x1="${pA.x.toFixed(1)}" y1="${(lineY-6).toFixed(1)}"
+                  x2="${pA.x.toFixed(1)}" y2="${(lineY+6).toFixed(1)}"
+                  stroke="${lineColor}" stroke-width="2" opacity="1"/>
+            <line x1="${pB.x.toFixed(1)}" y1="${(lineY-6).toFixed(1)}"
+                  x2="${pB.x.toFixed(1)}" y2="${(lineY+6).toFixed(1)}"
+                  stroke="${lineColor}" stroke-width="2" opacity="1"/>
+            <rect x="${(midX - lblW/2).toFixed(1)}" y="${(lineY-16).toFixed(1)}"
+                  width="${lblW.toFixed(1)}" height="14" rx="3"
+                  fill="#0d1117" stroke="${lineColor}" stroke-width="1"/>
+            <text x="${midX.toFixed(1)}" y="${(lineY-5).toFixed(1)}"
                   text-anchor="middle" fill="${color}"
-                  font-size="9" font-family="monospace" font-weight="bold">${escapeHtml(label)}</text>
+                  font-size="11" font-family="monospace" font-weight="bold">${escapeHtml(label)}</text>
         `);
     }
 
@@ -1389,6 +1413,7 @@ function setupEventListeners() {
         if (e.target.id === 'btn-settings') settingsModal.open();
         if (e.target.id === 'btn-help') openHelpModal();
         if (e.target.id === 'btn-undo') handleUndo();
+        if (e.target.id === 'btn-reset-state') resetState();
         if (e.target.id === 'btn-bulk-delay') openBulkDelayModal();
         if (e.target.id === 'btn-sim-toggle') openSimulation();
         if (e.target.id === 'sim-play') toggleSimPlay();
@@ -1698,6 +1723,14 @@ function closeSimulation() {
     ribbon.clearSimTime();
     miniMap.clearSimPositions();
     popupMap?.clearSimPositions();
+}
+
+function resetState() {
+    closeSimulation();
+    state.setNowTarget = null;
+    state.conflictArmed = false;
+    updateBadges();
+    showToast('시뮬레이션 및 SET NOW 초기화 완료', 'success');
 }
 
 function toggleSimPlay() {

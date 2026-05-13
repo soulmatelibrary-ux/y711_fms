@@ -1,15 +1,29 @@
 /**
  * MiniMap 지리 설정 — MiniMap.js 와 simulationBridge.js 가 공유
  *
- * ★ 노드 위치(GEO)를 변경하면 이 파일만 수정하면 됩니다.
- *   MiniMap 렌더링과 시뮬레이션 항공기 이동이 자동으로 동기화됩니다.
+ * ★ y 좌표는 시간 비례 배치 (PX_PER_MIN = 14)
+ *   RKSS 출발 기준 t분 → y = TOP_Y + t * PX_PER_MIN
  *
- * 스파인: RKSS → BULTI → MEKIL → JNKR → MANGI → DALSU → RKPC
+ *   스파인: RKSS(t=0) → BULTI(t=5) → MEKIL(t=15) → JNKR(t=22)
+ *           → MANGI(t=25) → DALSU(t=35) → RKPC(t=50)
+ *
+ *   측면 공항: 해당 합류점 도달 시각에서 각 공항→합류점 비행시간을 역산
+ *     RKTU(t=5):  MEKIL(t=15) − 10분 = t=5
+ *     RKJK(t=15): JNKR(t=22) − 7분 = t=15
+ *     RKJJ(t=17): MANGI(t=25) − 8분 = t=17
  */
 
-// ── SVG 좌표 공간 크기 ────────────────────────────────────────
 export const MAP_W = 360;
-export const MAP_H = 810;
+
+/** 시간→픽셀 기본 스케일 (1분 = 20px) */
+export const PX_PER_MIN = 20;
+/** 스파인 최상단 y 여백 */
+export const TOP_Y = 50;
+/** 전체 경로 소요 시간(분) */
+export const ROUTE_TOTAL_MIN = 50;
+
+/** 기본 맵 총 높이 (동적 변경 시 MiniMap._mapH() 사용) */
+export const MAP_H = TOP_Y + ROUTE_TOTAL_MIN * PX_PER_MIN + 60;
 
 // ── 공항 색상 ────────────────────────────────────────────────
 export const AIRPORT_COLOR = {
@@ -26,21 +40,30 @@ export const AIRPORT_BG = {
     RKJJ: '#281a00',
 };
 
-// ── 노드 좌표 (SVG 기준) ─────────────────────────────────────
-// type: 'airport' | 'conv' | 'junction' | 'dest'
-// junction: 레이블 없는 소형 합류 다이아몬드
-export const GEO = {
-    RKSS:  { x: 72,  y: 55,  label: '김포',  type: 'airport',  side: 'left'  },
-    RKJK:  { x: 72,  y: 374, label: '군산',  type: 'airport',  side: 'left'  },
-    RKTU:  { x: 262, y: 248, label: '청주',  type: 'airport',  side: 'right' },
-    RKJJ:  { x: 262, y: 491, label: '광주',  type: 'airport',  side: 'right' },
-    BULTI: { x: 152, y: 148, label: 'BULTI', type: 'conv' },
-    MEKIL: { x: 152, y: 273, label: 'MEKIL', type: 'conv', labelDy: -8 },
-    JNKR:  { x: 152, y: 452, label: '',      type: 'junction' },
-    MANGI: { x: 152, y: 521, label: 'MANGI', type: 'conv' },
-    DALSU: { x: 152, y: 646, label: 'DALSU', type: 'conv' },
-    RKPC:  { x: 152, y: 764, label: '제주',  type: 'dest'  },
-};
+// ── 시간 비례 y 계산 헬퍼 ───────────────────────────────────
+const t = (min, ppm = PX_PER_MIN) => TOP_Y + min * ppm;
+
+/**
+ * 주어진 px/분 스케일로 GEO 좌표를 재계산한다.
+ * pxPerMin 기본값 = PX_PER_MIN (14)
+ */
+export function buildGeo(pxPerMin = PX_PER_MIN) {
+    return {
+        RKSS:  { x: 72,  y: t(0,  pxPerMin), label: '김포', type: 'airport', side: 'left'  },
+        RKTU:  { x: 262, y: t(5,  pxPerMin), label: '청주', type: 'airport', side: 'right' },
+        RKJK:  { x: 72,  y: t(15, pxPerMin), label: '군산', type: 'airport', side: 'left'  },
+        RKJJ:  { x: 262, y: t(17, pxPerMin), label: '광주', type: 'airport', side: 'right' },
+        BULTI: { x: 152, y: t(5,  pxPerMin), label: 'BULTI', type: 'conv' },
+        MEKIL: { x: 152, y: t(15, pxPerMin), label: 'MEKIL', type: 'conv', labelDy: -8 },
+        JNKR:  { x: 152, y: t(22, pxPerMin), label: '',      type: 'junction' },
+        MANGI: { x: 152, y: t(25, pxPerMin), label: 'MANGI', type: 'conv' },
+        DALSU: { x: 152, y: t(35, pxPerMin), label: 'DALSU', type: 'conv' },
+        RKPC:  { x: 152, y: t(50, pxPerMin), label: '제주',  type: 'dest'  },
+    };
+}
+
+// ── 기본 GEO (backward-compat) ───────────────────────────────
+export const GEO = buildGeo();
 
 // ── MiniMap 렌더링용 경로 엣지 ───────────────────────────────
 export const ROUTES = [
@@ -55,7 +78,7 @@ export const ROUTES = [
     ['DALSU', 'RKPC'],
 ];
 
-// ── MiniMap 경로 하이라이트용 (공항 클릭/선택 시 활성 구간 판별) ──
+// ── MiniMap 경로 하이라이트용 ────────────────────────────────
 export const ROUTE_MAP = {
     RKSS: ['RKSS', 'BULTI', 'MEKIL', 'JNKR', 'MANGI', 'DALSU', 'RKPC'],
     RKTU: ['RKTU', 'MEKIL', 'JNKR', 'MANGI', 'DALSU', 'RKPC'],
