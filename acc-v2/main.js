@@ -1673,6 +1673,8 @@ const simState = {
     rafId: null,
     lastTs: null,
     _realNowSec: 0,
+    _startSec: 0,
+    _endSec: 0,
 };
 
 // 슬라이더/속도 리스너는 DOM 생성 후 1회만 등록 (renderApp 이후 setupSimEvents 호출)
@@ -1694,16 +1696,38 @@ function openSimulation() {
     if (bar.classList.contains('visible')) return;
 
     simState._realNowSec = nowUtcSec();
-    simState.simTimeSec = simState._realNowSec;
     simState.playing = false;
     simState.lastTs = null;
 
-    // 슬라이더 범위: NOW ± 2h (자정 경계 처리: 86400 이내로 제한)
+    // 시작 시각: SET NOW의 ATD → 없으면 전체 항공편 중 가장 빠른 출발 시각
+    const setNow = state.setNowTarget;
+    let startSec;
+    if (setNow?.atd) {
+        startSec = timeToSec(setNow.atd);
+    } else {
+        const depTimes = state.flights
+            .map(f => timeToSec(f.atd || f.ctot || f.eobt))
+            .filter(t => t > 0);
+        startSec = depTimes.length ? Math.min(...depTimes) : simState._realNowSec;
+    }
+
+    // 종료 시각: 전체 항공편 중 가장 늦은 출발 + 최대 비행시간(55분 여유 포함)
+    const depTimes = state.flights
+        .map(f => timeToSec(f.atd || f.ctot || f.eobt))
+        .filter(t => t > 0);
+    const endSec = depTimes.length
+        ? Math.max(...depTimes) + 55 * 60
+        : startSec + 2 * 3600;
+
+    simState._startSec = startSec;
+    simState._endSec   = endSec;
+    simState.simTimeSec = startSec;
+
     const slider = document.getElementById('sim-slider');
     if (slider) {
-        slider.min = Math.max(0, simState._realNowSec - 7200);
-        slider.max = Math.min(simState._realNowSec + 7200, 86399);
-        slider.value = simState._realNowSec;
+        slider.min   = startSec;
+        slider.max   = endSec;
+        slider.value = startSec;
     }
 
     bar.classList.add('visible');
@@ -1755,13 +1779,10 @@ function _stopSimLoop() {
 function _simLoop(ts) {
     if (!simState.playing) return;
     if (simState.lastTs !== null) {
+        const endSec = simState._endSec || (simState._realNowSec + 7200);
         const dt = (ts - simState.lastTs) / 1000;
-        simState.simTimeSec = Math.min(
-            simState._realNowSec + 7200,
-            simState.simTimeSec + dt * simState.speed
-        );
-        // 끝에 도달하면 자동 정지
-        if (simState.simTimeSec >= simState._realNowSec + 7200) {
+        simState.simTimeSec = Math.min(endSec, simState.simTimeSec + dt * simState.speed);
+        if (simState.simTimeSec >= endSec) {
             _stopSimLoop();
             document.getElementById('sim-play').textContent = '▶';
             return;

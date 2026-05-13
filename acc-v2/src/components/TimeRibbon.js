@@ -357,7 +357,8 @@ export class TimeRibbon {
         const textW = c.measureText(callsignText).width;
         const eobtX = textX + textW + 8;
         c.save();
-        c.rect(clampX1 + 2, barY, barW - 4, barH);
+        c.beginPath(); // 이전 경로(rounded rect)가 클리핑에 포함되지 않도록 초기화
+        c.rect(clampX1 + 2, barY, Math.max(1, barW - 4), barH);
         c.clip();
         c.fillText(callsignText, textX, textY);
         c.fillStyle = '#9fb0c2';
@@ -388,7 +389,8 @@ export class TimeRibbon {
         c.fillStyle = '#b0bed1';
         c.font = '11px monospace';
         c.save();
-        c.rect(clampX1 + 2, barY, barW - 4, barH);
+        c.beginPath();
+        c.rect(clampX1 + 2, barY, Math.max(1, barW - 4), barH);
         c.clip();
         c.fillText(timeLabel, clampX1 + 5, barY + 33);
         c.restore();
