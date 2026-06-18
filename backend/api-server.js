@@ -59,8 +59,11 @@ async function initOracle() {
     try {
         const clientPath = process.env.ORACLE_CLIENT_PATH;
         if (clientPath) {
-            oracledb.initOracleClient({ libDir: clientPath });
-            console.log('✅ Oracle Client 초기화 (Thick Mode):', clientPath);
+            // 상대 경로인 경우 절대 경로로 변환 (./ 또는 ../ 로 시작하면 상대 경로)
+            const isRelative = clientPath.startsWith('./') || clientPath.startsWith('../');
+            const absolutePath = isRelative ? path.resolve(__dirname, clientPath) : clientPath;
+            oracledb.initOracleClient({ libDir: absolutePath });
+            console.log('✅ Oracle Client 초기화 (Thick Mode):', absolutePath);
         }
 
         oraclePool = await oracledb.createPool({

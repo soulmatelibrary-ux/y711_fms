@@ -49,8 +49,9 @@ export function formatDisplay(hhmm) {
 }
 
 // UTC 자정 경계 보정: 00:00~14:59 UTC(=09:00~23:59 KST)는 전날 15:00 UTC 이후 연속
+// s > 0이 아닌 s >= 0으로 UTC 00:00(= KST 09:00)도 올바르게 +86400 보정
 export function toAbsSec(s) {
-    return s > 0 && s < 15 * 3600 ? s + 86400 : s;
+    return s >= 0 && s < 15 * 3600 ? s + 86400 : s;
 }
 
 // diff in minutes between two HHmm strings (UTC 자정 경계 보정 포함)

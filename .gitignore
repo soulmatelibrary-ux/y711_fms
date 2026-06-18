@@ -9,3 +9,5 @@ node_modules/
 python/
 offline_packages/
 nul
+_backup/
+backend/instantclient/

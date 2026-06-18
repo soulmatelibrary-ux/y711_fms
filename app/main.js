@@ -206,6 +206,7 @@ async function init() {
         hideLoading();
         renderApp();
         applyUiPrefs();
+        resizeCanvas(); // applyUiPrefs()가 CSS 변수를 변경한 뒤 캔버스 크기를 재조정
         _initSimSlider();
         startClock();
         setupEventListeners();
@@ -560,11 +561,13 @@ function resizeCanvas() {
     const wrap = document.getElementById('ribbon-wrap');
     const canvas = document.getElementById('ribbon-canvas');
     if (!wrap || !canvas) return;
-    canvas.width = wrap.clientWidth;
     if (ribbon) {
         ribbon.resize();
         return;
     }
+    // ribbon 초기화 전: clientWidth가 0이면 설정 스킵 (ribbon.resize()에서 재시도)
+    const w = wrap.clientWidth;
+    if (w > 0) canvas.width = w;
     canvas.height = wrap.clientHeight || 500;
 }
 
@@ -2070,6 +2073,7 @@ function setupVSplitter() {
         if (dragging) {
             const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-w'), 10);
             saveUiPref('rightW', w);
+            resizeCanvas();
         }
         dragging = false;
         document.body.style.userSelect = '';
@@ -2078,6 +2082,7 @@ function setupVSplitter() {
     vSplitter.addEventListener('dblclick', () => {
         document.documentElement.style.setProperty('--right-w', '380px');
         saveUiPref('rightW', 380);
+        resizeCanvas();
     });
 }
 

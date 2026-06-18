@@ -132,7 +132,11 @@ export class TimeRibbon {
     }
 
     _loop() {
-        this.draw();
+        try {
+            this.draw();
+        } catch (e) {
+            console.error('[TimeRibbon] draw error:', e);
+        }
         this._raf = requestAnimationFrame(() => this._loop());
     }
 
@@ -290,6 +294,8 @@ export class TimeRibbon {
         if (laneY === undefined) return;
 
         const ctotSec = toAbsSec(timeToSec(f.atd || f.ctot || f.eobt));
+        if (!Number.isFinite(ctotSec)) return;
+
         // 도착 추정: routeWaypoints에서 RKPC 도착 시각 사용, 없으면 기본 50분
         const rkpcWp = (f.routeWaypoints || []).find(w => w.name === 'RKPC');
         const endSec = (rkpcWp && Number.isFinite(rkpcWp.timeSec))
@@ -662,7 +668,11 @@ export class TimeRibbon {
             const laneY = this._laneY[f.dept];
             if (laneY === undefined) continue;
             const ctotSec = toAbsSec(timeToSec(f.atd || f.ctot || f.eobt));
-            const endSec = ctotSec + 50 * 60;
+            if (!Number.isFinite(ctotSec)) continue;
+            const rkpcWp = (f.routeWaypoints || []).find(w => w.name === 'RKPC');
+            const endSec = (rkpcWp && Number.isFinite(rkpcWp.timeSec))
+                ? rkpcWp.timeSec
+                : (ctotSec + 50 * 60);
             const x1 = this._tx(ctotSec);
             const x2 = this._tx(endSec);
             if (x2 < LABEL_W || x1 > W) continue;
@@ -851,9 +861,14 @@ export class TimeRibbon {
 
     resize() {
         const parent = this.canvas.parentElement;
-        if (parent) {
-            this.canvas.width = parent.clientWidth;
+        if (!parent) return;
+        const w = parent.clientWidth;
+        if (w > 0) {
+            this.canvas.width = w;
             this.canvas.height = this.totalH + 20;
+        } else {
+            // 레이아웃이 아직 계산되지 않은 경우 다음 프레임에 재시도
+            requestAnimationFrame(() => this.resize());
         }
     }
 }

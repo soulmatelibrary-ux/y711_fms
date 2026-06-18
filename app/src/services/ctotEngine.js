@@ -83,7 +83,8 @@ export function recalcAll(flights) {
 
     // 자정 경계 처리: KST 하루 = UTC 15:00 ~ 다음날 UTC 14:59
     // UTC 15:00(54000s) 미만인 시간(00:xx~14:xx)은 같은 KST 날의 연속 → +86400
-    const toAbsSec = s => (s > 0 && s < 15 * 3600 ? s + 86400 : s);
+    // s >= 0: UTC 00:00(=KST 09:00)도 올바르게 보정 (timeUtils.toAbsSec와 동일)
+    const toAbsSec = s => (s >= 0 && s < 15 * 3600 ? s + 86400 : s);
 
     updated.sort((a, b) => toAbsSec(timeToSec(a.eobt)) - toAbsSec(timeToSec(b.eobt)));
 
