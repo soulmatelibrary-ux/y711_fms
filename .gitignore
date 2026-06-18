@@ -1,16 +1,11 @@
-node_modules/
 dist/
-.DS_Store
+*.local
 *.log
-.vscode/
-
-# Environment variables - NEVER commit to git
-.env
-.env.local
-.env.*.local
-
-# Sensitive files
-*.pem
-*.key
-certs/
-secrets/
+__pycache__/
+*.pyc
+*.pyo
+backend/.env
+node_modules/
+python/
+offline_packages/
+nul

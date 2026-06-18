@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -Path \"c:\\\\Users\\\\Administrator\\\\Desktop\\\\y711_fms\\\\app\" -Include \"TimeRibbon.js\", \"main.js\", \"style.css\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(git fetch *)"
+    ]
+  }
+}

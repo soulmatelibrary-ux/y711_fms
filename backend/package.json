@@ -1,0 +1,15 @@
+{
+  "name": "acc-atd-backend",
+  "version": "2.0.0",
+  "description": "ACC ATD v2 Backend API Server",
+  "main": "api-server.js",
+  "scripts": {
+    "start": "node api-server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.4",
+    "express": "^4.18.2",
+    "oracledb": "^6.10.0"
+  }
+}
